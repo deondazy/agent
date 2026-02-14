@@ -1,15 +1,24 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-DEFAULT_REPO_URL="https://github.com/REPLACE_ME/openclaw-agent.git"
+DEFAULT_REPO_URL="https://github.com/deondazy/agent.git"
 DEFAULT_REF="main"
-DEFAULT_INSTALL_DIR="$HOME/openclaw-agent"
+DEFAULT_INSTALL_DIR="$HOME/agent"
 
 prompt() {
   local label="$1"
   local default_value="$2"
   local value
-  read -r -p "$label [$default_value]: " value
+
+  if [ -t 0 ] && [ -r /dev/tty ]; then
+    read -r -p "$label [$default_value]: " value </dev/tty
+  elif [ -r /dev/tty ]; then
+    read -r -p "$label [$default_value]: " value </dev/tty
+  else
+    # Non-interactive environments fall back to provided defaults/env vars.
+    value=""
+  fi
+
   if [ -z "${value}" ]; then
     echo "$default_value"
   else
@@ -42,8 +51,8 @@ choose_python() {
 }
 
 echo
-echo "OpenClaw Remote Installer"
-echo "========================="
+echo "Agent Remote Installer"
+echo "======================"
 echo
 
 require_command git
@@ -61,11 +70,6 @@ INSTALL_DIR="${OPENCLAW_INSTALL_DIR:-$DEFAULT_INSTALL_DIR}"
 REPO_URL="$(prompt "Git repository URL" "$REPO_URL")"
 REF_NAME="$(prompt "Git ref (branch/tag)" "$REF_NAME")"
 INSTALL_DIR="$(prompt "Install directory" "$INSTALL_DIR")"
-
-if [[ "$REPO_URL" == *"REPLACE_ME"* ]]; then
-  echo "Repository URL is still a placeholder. Re-run and provide your real git URL." >&2
-  exit 1
-fi
 
 echo
 echo "Using settings:"

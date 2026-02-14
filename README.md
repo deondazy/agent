@@ -54,16 +54,16 @@ On a different machine, you can run a remote bootstrap script that prompts for:
 Then it clones/updates the repo and launches the interactive Q/A installer walkthrough.
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/REPLACE_ME/openclaw-agent/main/scripts/bootstrap-install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/deondazy/agent/main/scripts/bootstrap-install.sh | bash
 ```
 
 Non-interactive defaults can be prefilled:
 
 ```bash
-OPENCLAW_REPO_URL="https://github.com/YOUR_ORG/openclaw-agent.git" \
+OPENCLAW_REPO_URL="https://github.com/deondazy/agent.git" \
 OPENCLAW_REF="main" \
-OPENCLAW_INSTALL_DIR="$HOME/openclaw-agent" \
-curl -fsSL https://raw.githubusercontent.com/REPLACE_ME/openclaw-agent/main/scripts/bootstrap-install.sh | bash
+OPENCLAW_INSTALL_DIR="$HOME/agent" \
+curl -fsSL https://raw.githubusercontent.com/deondazy/agent/main/scripts/bootstrap-install.sh | bash
 ```
 
 ## Run tests

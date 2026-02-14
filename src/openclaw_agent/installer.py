@@ -130,8 +130,8 @@ def _collect_answers() -> WalkthroughAnswers:
 
 
 def run_walkthrough(env_path: Path) -> None:
-    print("\nOpenClaw Installer Walkthrough")
-    print("================================")
+    print("\nAgent Installer Walkthrough")
+    print("===========================")
     print("This will update your local .env for provider and gateway settings.\n")
 
     answers = _collect_answers()
