@@ -105,4 +105,8 @@ fi
 echo
 echo "Launching interactive installer walkthrough..."
 cd "$INSTALL_DIR"
-bash ./scripts/install.sh
+if [ -r /dev/tty ]; then
+  bash ./scripts/install.sh </dev/tty
+else
+  bash ./scripts/install.sh
+fi

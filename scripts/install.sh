@@ -33,7 +33,11 @@ PIP_USER=0 python -m pip install -e ".[dev]"
 
 echo
 echo "Starting interactive walkthrough..."
-python -m openclaw_agent.installer --env-file .env
+if [ -r /dev/tty ]; then
+  python -m openclaw_agent.installer --env-file .env </dev/tty
+else
+  python -m openclaw_agent.installer --env-file .env
+fi
 
 echo
 echo "Install complete."
