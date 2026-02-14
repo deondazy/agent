@@ -1,0 +1,37 @@
+[build-system]
+requires = ["hatchling>=1.27.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "openclaw-agent"
+version = "0.1.0"
+description = "OpenClaw-style autonomous coding agent scaffold"
+readme = "README.md"
+requires-python = ">=3.12"
+authors = [
+  { name = "Codex" }
+]
+dependencies = [
+  "fastapi>=0.115.0",
+  "uvicorn[standard]>=0.34.0",
+  "pydantic>=2.10.0",
+  "celery>=5.4.0",
+  "redis>=5.2.0",
+  "httpx>=0.28.0",
+  "sqlalchemy>=2.0.36",
+  "psycopg[binary]>=3.2.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.3.0",
+  "pytest-asyncio>=0.24.0",
+]
+
+[project.scripts]
+openclaw-installer = "openclaw_agent.installer:main"
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+addopts = "-ra"
