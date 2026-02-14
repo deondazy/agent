@@ -72,7 +72,7 @@ def run_tui(
 
     while True:
         try:
-            user_message = input_fn("> ").strip()
+            user_message = input_fn("").strip()
         except EOFError:
             output_fn("Goodbye.")
             return 0
