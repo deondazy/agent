@@ -1,7 +1,7 @@
 import pytest
 
-from openclaw_agent.adapters.models.base import ProviderError
-from openclaw_agent.adapters.models.gateway import ModelGateway
+from denosysbot.adapters.models.base import ProviderError
+from denosysbot.adapters.models.gateway import ModelGateway
 
 
 class FailingProvider:

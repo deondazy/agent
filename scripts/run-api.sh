@@ -12,4 +12,4 @@ fi
 # shellcheck disable=SC1091
 source .venv/bin/activate
 
-exec .venv/bin/uvicorn openclaw_agent.main:app --reload --app-dir "$ROOT_DIR"
+exec .venv/bin/uvicorn denosysbot.main:app --reload --app-dir "$ROOT_DIR"

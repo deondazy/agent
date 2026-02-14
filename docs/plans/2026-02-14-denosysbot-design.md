@@ -1,4 +1,4 @@
-# OpenClaw-Style Agent Design
+# DenosysBot-Style Agent Design
 
 **Date:** February 14, 2026
 **Status:** Approved

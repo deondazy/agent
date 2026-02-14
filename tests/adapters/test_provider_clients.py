@@ -4,10 +4,10 @@ import json
 import httpx
 import pytest
 
-from openclaw_agent.adapters.models.anthropic import AnthropicProvider
-from openclaw_agent.adapters.models.base import ProviderError
-from openclaw_agent.adapters.models.ollama import OllamaProvider
-from openclaw_agent.adapters.models.openai import OpenAIProvider
+from denosysbot.adapters.models.anthropic import AnthropicProvider
+from denosysbot.adapters.models.base import ProviderError
+from denosysbot.adapters.models.ollama import OllamaProvider
+from denosysbot.adapters.models.openai import OpenAIProvider
 
 
 def _make_client(handler) -> httpx.Client:

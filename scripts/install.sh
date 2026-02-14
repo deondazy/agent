@@ -34,16 +34,16 @@ PIP_USER=0 python -m pip install -e ".[dev]"
 echo
 echo "Starting interactive walkthrough..."
 if [ -r /dev/tty ]; then
-  python -m openclaw_agent.installer --env-file .env </dev/tty
+  python -m denosysbot.installer --env-file .env </dev/tty
 else
-  python -m openclaw_agent.installer --env-file .env
+  python -m denosysbot.installer --env-file .env
 fi
 
 echo
 echo "Install complete."
 echo "Project dir:  $ROOT_DIR"
 echo "Activate env: cd \"$ROOT_DIR\" && source .venv/bin/activate"
-echo "Run API:      cd \"$ROOT_DIR\" && .venv/bin/uvicorn openclaw_agent.main:app --reload --app-dir \"$ROOT_DIR\""
-echo "Run worker:   cd \"$ROOT_DIR\" && .venv/bin/celery -A openclaw_agent.queue.celery_app worker --loglevel=INFO"
-echo "Open TUI:     cd \"$ROOT_DIR\" && source .venv/bin/activate && agent tui"
+echo "Run API:      cd \"$ROOT_DIR\" && .venv/bin/uvicorn denosysbot.main:app --reload --app-dir \"$ROOT_DIR\""
+echo "Run worker:   cd \"$ROOT_DIR\" && .venv/bin/celery -A denosysbot.queue.celery_app worker --loglevel=INFO"
+echo "Open TUI:     cd \"$ROOT_DIR\" && source .venv/bin/activate && denosysbot tui"
 echo "Shortcuts:    $ROOT_DIR/scripts/run-api.sh  |  $ROOT_DIR/scripts/run-worker.sh"

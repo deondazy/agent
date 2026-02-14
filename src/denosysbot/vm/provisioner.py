@@ -1,6 +1,6 @@
 """Disposable VM provisioner scaffold."""
 
-from openclaw_agent.vm.contracts import WorkerContext
+from denosysbot.vm.contracts import WorkerContext
 
 
 class VMProvisioner:

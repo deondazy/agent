@@ -1,4 +1,4 @@
-from openclaw_agent.policy.engine import PolicyEngine
+from denosysbot.policy.engine import PolicyEngine
 
 
 def test_rejects_disallowed_command() -> None:

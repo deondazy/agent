@@ -1,8 +1,8 @@
 from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
 
-from openclaw_agent.adapters.models.gateway import ModelGateway
-from openclaw_agent.api.dependencies import get_model_gateway
+from denosysbot.adapters.models.gateway import ModelGateway
+from denosysbot.api.dependencies import get_model_gateway
 
 
 class DummyProvider:

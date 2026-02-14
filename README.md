@@ -1,6 +1,6 @@
-# OpenClaw Agent (Scaffold)
+# DenosysBot (Scaffold)
 
-This repository contains a Python modular-monolith scaffold for an OpenClaw-style autonomous coding system.
+This repository contains a Python modular-monolith scaffold for a DenosysBot-style autonomous coding system.
 
 ## What is implemented
 
@@ -19,7 +19,7 @@ cd /path/to/agent
 python -m venv .venv
 source .venv/bin/activate
 pip install -e .[dev]
-.venv/bin/uvicorn openclaw_agent.main:app --reload --app-dir "$(pwd)"
+.venv/bin/uvicorn denosysbot.main:app --reload --app-dir "$(pwd)"
 ```
 
 ## Installer Walkthrough
@@ -41,7 +41,7 @@ What it does:
 You can also run the walkthrough directly after install:
 
 ```bash
-openclaw-installer --env-file .env
+denosysbot-installer --env-file .env
 ```
 
 ## Remote Install (curl + walkthrough)
@@ -61,9 +61,9 @@ curl -fsSL https://raw.githubusercontent.com/deondazy/agent/main/scripts/bootstr
 Non-interactive defaults can be prefilled:
 
 ```bash
-OPENCLAW_REPO_URL="https://github.com/deondazy/agent.git" \
-OPENCLAW_REF="main" \
-OPENCLAW_INSTALL_DIR="$HOME/agent" \
+DENOSYSBOT_REPO_URL="https://github.com/deondazy/agent.git" \
+DENOSYSBOT_REF="main" \
+DENOSYSBOT_INSTALL_DIR="$HOME/agent" \
 curl -fsSL https://raw.githubusercontent.com/deondazy/agent/main/scripts/bootstrap-install.sh | bash
 ```
 
@@ -80,7 +80,7 @@ pytest -q
 ```bash
 cd /path/to/agent
 source .venv/bin/activate
-.venv/bin/celery -A openclaw_agent.queue.celery_app worker --loglevel=INFO
+.venv/bin/celery -A denosysbot.queue.celery_app worker --loglevel=INFO
 ```
 
 Or use helper scripts:
@@ -97,7 +97,7 @@ After install, open an interactive chat session:
 ```bash
 cd /path/to/agent
 source .venv/bin/activate
-agent tui
+denosysbot tui
 ```
 
 Commands inside TUI:
@@ -116,17 +116,17 @@ Configure keys with environment variables:
 
 Provider gateway runtime configuration:
 
-- `OPENCLAW_MODEL_FALLBACK_ORDER` (comma-separated, e.g. `openai,anthropic,ollama`)
-- `OPENCLAW_MODEL_OPENAI_MODEL`, `OPENCLAW_MODEL_OPENAI_BASE_URL`
-- `OPENCLAW_MODEL_OPENAI_TIMEOUT_SECONDS`, `OPENCLAW_MODEL_OPENAI_MAX_RETRIES`
-- `OPENCLAW_MODEL_OPENAI_INITIAL_BACKOFF_SECONDS`, `OPENCLAW_MODEL_OPENAI_MAX_BACKOFF_SECONDS`
-- `OPENCLAW_MODEL_ANTHROPIC_MODEL`, `OPENCLAW_MODEL_ANTHROPIC_BASE_URL`
-- `OPENCLAW_MODEL_ANTHROPIC_VERSION`, `OPENCLAW_MODEL_ANTHROPIC_TIMEOUT_SECONDS`
-- `OPENCLAW_MODEL_ANTHROPIC_MAX_RETRIES`
-- `OPENCLAW_MODEL_ANTHROPIC_INITIAL_BACKOFF_SECONDS`, `OPENCLAW_MODEL_ANTHROPIC_MAX_BACKOFF_SECONDS`
-- `OPENCLAW_MODEL_OLLAMA_MODEL`, `OPENCLAW_MODEL_OLLAMA_BASE_URL`
-- `OPENCLAW_MODEL_OLLAMA_TIMEOUT_SECONDS`, `OPENCLAW_MODEL_OLLAMA_MAX_RETRIES`
-- `OPENCLAW_MODEL_OLLAMA_INITIAL_BACKOFF_SECONDS`, `OPENCLAW_MODEL_OLLAMA_MAX_BACKOFF_SECONDS`
+- `DENOSYSBOT_MODEL_FALLBACK_ORDER` (comma-separated, e.g. `openai,anthropic,ollama`)
+- `DENOSYSBOT_MODEL_OPENAI_MODEL`, `DENOSYSBOT_MODEL_OPENAI_BASE_URL`
+- `DENOSYSBOT_MODEL_OPENAI_TIMEOUT_SECONDS`, `DENOSYSBOT_MODEL_OPENAI_MAX_RETRIES`
+- `DENOSYSBOT_MODEL_OPENAI_INITIAL_BACKOFF_SECONDS`, `DENOSYSBOT_MODEL_OPENAI_MAX_BACKOFF_SECONDS`
+- `DENOSYSBOT_MODEL_ANTHROPIC_MODEL`, `DENOSYSBOT_MODEL_ANTHROPIC_BASE_URL`
+- `DENOSYSBOT_MODEL_ANTHROPIC_VERSION`, `DENOSYSBOT_MODEL_ANTHROPIC_TIMEOUT_SECONDS`
+- `DENOSYSBOT_MODEL_ANTHROPIC_MAX_RETRIES`
+- `DENOSYSBOT_MODEL_ANTHROPIC_INITIAL_BACKOFF_SECONDS`, `DENOSYSBOT_MODEL_ANTHROPIC_MAX_BACKOFF_SECONDS`
+- `DENOSYSBOT_MODEL_OLLAMA_MODEL`, `DENOSYSBOT_MODEL_OLLAMA_BASE_URL`
+- `DENOSYSBOT_MODEL_OLLAMA_TIMEOUT_SECONDS`, `DENOSYSBOT_MODEL_OLLAMA_MAX_RETRIES`
+- `DENOSYSBOT_MODEL_OLLAMA_INITIAL_BACKOFF_SECONDS`, `DENOSYSBOT_MODEL_OLLAMA_MAX_BACKOFF_SECONDS`
 
 Provider adapters implemented:
 
@@ -139,12 +139,12 @@ Each adapter includes retry/backoff for transient HTTP failures and raises `Prov
 
 ## FastAPI dependency access
 
-Use `openclaw_agent.api.dependencies.get_model_gateway` when routes/services need model access through dependency injection:
+Use `denosysbot.api.dependencies.get_model_gateway` when routes/services need model access through dependency injection:
 
 ```python
 from fastapi import Depends
-from openclaw_agent.adapters.models.gateway import ModelGateway
-from openclaw_agent.api.dependencies import get_model_gateway
+from denosysbot.adapters.models.gateway import ModelGateway
+from denosysbot.api.dependencies import get_model_gateway
 
 def route_handler(gateway: ModelGateway = Depends(get_model_gateway)):
     ...

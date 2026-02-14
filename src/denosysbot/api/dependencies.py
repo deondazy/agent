@@ -2,7 +2,7 @@
 
 from fastapi import HTTPException, Request
 
-from openclaw_agent.adapters.models.gateway import ModelGateway
+from denosysbot.adapters.models.gateway import ModelGateway
 
 
 def get_model_gateway(request: Request) -> ModelGateway:

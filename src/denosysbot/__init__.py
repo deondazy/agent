@@ -1,4 +1,4 @@
-"""OpenClaw agent package."""
+"""DenosysBot agent package."""
 
 __all__ = ["__version__"]
 

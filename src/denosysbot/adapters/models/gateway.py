@@ -3,7 +3,7 @@
 from collections.abc import Sequence
 from typing import Any
 
-from openclaw_agent.adapters.models.base import ModelProvider, ProviderError
+from denosysbot.adapters.models.base import ModelProvider, ProviderError
 
 
 class ModelGateway:

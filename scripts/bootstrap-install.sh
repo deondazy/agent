@@ -51,8 +51,8 @@ choose_python() {
 }
 
 echo
-echo "Agent Remote Installer"
-echo "======================"
+echo "DenosysBot Remote Installer"
+echo "==========================="
 echo
 
 require_command git
@@ -63,9 +63,9 @@ if [ -z "$PYTHON_BIN" ]; then
   exit 1
 fi
 
-REPO_URL="${OPENCLAW_REPO_URL:-$DEFAULT_REPO_URL}"
-REF_NAME="${OPENCLAW_REF:-$DEFAULT_REF}"
-INSTALL_DIR="${OPENCLAW_INSTALL_DIR:-$DEFAULT_INSTALL_DIR}"
+REPO_URL="${DENOSYSBOT_REPO_URL:-$DEFAULT_REPO_URL}"
+REF_NAME="${DENOSYSBOT_REF:-$DEFAULT_REF}"
+INSTALL_DIR="${DENOSYSBOT_INSTALL_DIR:-$DEFAULT_INSTALL_DIR}"
 
 REPO_URL="$(prompt "Git repository URL" "$REPO_URL")"
 REF_NAME="$(prompt "Git ref (branch/tag)" "$REF_NAME")"

@@ -1,6 +1,6 @@
 import pytest
 
-from openclaw_agent.domain.states import RunState, StateTransitionError, can_transition, next_stage
+from denosysbot.domain.states import RunState, StateTransitionError, can_transition, next_stage
 
 
 def test_valid_transition_from_queued_to_ingesting() -> None:

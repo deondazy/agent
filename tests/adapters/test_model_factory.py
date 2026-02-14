@@ -1,10 +1,10 @@
 import pytest
 
-from openclaw_agent.adapters.models.anthropic import AnthropicProvider
-from openclaw_agent.adapters.models.factory import build_model_gateway
-from openclaw_agent.adapters.models.ollama import OllamaProvider
-from openclaw_agent.adapters.models.openai import OpenAIProvider
-from openclaw_agent.core.config import Settings
+from denosysbot.adapters.models.anthropic import AnthropicProvider
+from denosysbot.adapters.models.factory import build_model_gateway
+from denosysbot.adapters.models.ollama import OllamaProvider
+from denosysbot.adapters.models.openai import OpenAIProvider
+from denosysbot.core.config import Settings
 
 
 def test_factory_respects_order_and_per_provider_settings() -> None:

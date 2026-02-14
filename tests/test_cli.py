@@ -1,7 +1,7 @@
 from collections import deque
 
-from openclaw_agent.adapters.models.base import ProviderError
-from openclaw_agent.cli import main, run_tui
+from denosysbot.adapters.models.base import ProviderError
+from denosysbot.cli import main, run_tui
 
 
 class FakeGateway:
@@ -26,7 +26,7 @@ def test_main_tui_invokes_interactive_mode(monkeypatch) -> None:
         called["ran"] = True
         return 0
 
-    monkeypatch.setattr("openclaw_agent.cli.run_tui", _fake_run_tui)
+    monkeypatch.setattr("denosysbot.cli.run_tui", _fake_run_tui)
 
     code = main(["tui"])
 
@@ -55,8 +55,8 @@ def test_run_tui_generates_response_and_exits() -> None:
     )
 
     assert code == 0
-    assert any("Agent TUI" in line for line in outputs)
-    assert any("agent> hi there" in line for line in outputs)
+    assert any("DenosysBot TUI" in line for line in outputs)
+    assert any("denosysbot> hi there" in line for line in outputs)
     assert len(gateway.prompts) == 1
 
 

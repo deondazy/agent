@@ -1,4 +1,4 @@
-"""Interactive installer walkthrough for OpenClaw agent."""
+"""Interactive installer walkthrough for DenosysBot agent."""
 
 from dataclasses import dataclass
 from pathlib import Path
@@ -27,9 +27,9 @@ def build_env_updates(answers: WalkthroughAnswers) -> dict[str, str]:
         raise ValueError(f"unsupported profile: {answers.profile}")
 
     updates: dict[str, str] = {
-        "OPENCLAW_MODEL_FALLBACK_ORDER": ",".join(PROFILE_ORDERS[answers.profile]),
-        "OPENCLAW_MODEL_OLLAMA_BASE_URL": answers.ollama_base_url,
-        "OPENCLAW_MODEL_OLLAMA_MODEL": answers.ollama_model,
+        "DENOSYSBOT_MODEL_FALLBACK_ORDER": ",".join(PROFILE_ORDERS[answers.profile]),
+        "DENOSYSBOT_MODEL_OLLAMA_BASE_URL": answers.ollama_base_url,
+        "DENOSYSBOT_MODEL_OLLAMA_MODEL": answers.ollama_model,
     }
 
     if answers.openai_api_key:
@@ -144,14 +144,14 @@ def run_walkthrough(env_path: Path) -> None:
     print(f"\nWrote configuration to: {env_path}")
     print("\nNext steps:")
     print("1) source .venv/bin/activate")
-    print("2) uvicorn openclaw_agent.main:app --reload")
+    print("2) uvicorn denosysbot.main:app --reload")
     print("3) (optional) redis-server")
-    print("4) (optional) celery -A openclaw_agent.queue.celery_app worker --loglevel=INFO")
+    print("4) (optional) celery -A denosysbot.queue.celery_app worker --loglevel=INFO")
     print("5) curl http://127.0.0.1:8000/health")
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="OpenClaw installer walkthrough")
+    parser = argparse.ArgumentParser(description="DenosysBot installer walkthrough")
     parser.add_argument("--env-file", default=".env", help="Path to env file to update")
     args = parser.parse_args()
 

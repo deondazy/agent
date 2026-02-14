@@ -1,4 +1,4 @@
-from openclaw_agent.vm.provisioner import VMProvisioner
+from denosysbot.vm.provisioner import VMProvisioner
 
 
 def test_provisioner_returns_worker_context() -> None:

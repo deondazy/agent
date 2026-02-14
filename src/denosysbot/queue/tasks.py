@@ -11,10 +11,10 @@ except ModuleNotFoundError:  # pragma: no cover - exercised in dependency-light 
             return decorator_args[0]
         return _decorate
 
-from openclaw_agent.domain.states import parse_state
+from denosysbot.domain.states import parse_state
 
 
-@shared_task(name="openclaw.dispatch_stage")
+@shared_task(name="denosysbot.dispatch_stage")
 def dispatch_stage(run_id: str, stage: str) -> dict[str, str]:
     parsed_stage = parse_state(stage)
     return {

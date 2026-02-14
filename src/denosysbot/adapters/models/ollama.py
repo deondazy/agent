@@ -6,8 +6,8 @@ import os
 
 import httpx
 
-from openclaw_agent.adapters.models.base import ProviderError
-from openclaw_agent.adapters.models.http_client import request_json_with_retries
+from denosysbot.adapters.models.base import ProviderError
+from denosysbot.adapters.models.http_client import request_json_with_retries
 
 
 class OllamaProvider:

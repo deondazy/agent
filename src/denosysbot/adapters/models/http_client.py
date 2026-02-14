@@ -6,7 +6,7 @@ import time
 
 import httpx
 
-from openclaw_agent.adapters.models.base import ProviderError
+from denosysbot.adapters.models.base import ProviderError
 
 
 DEFAULT_RETRIABLE_STATUS_CODES = frozenset({408, 409, 425, 429, 500, 502, 503, 504, 529})

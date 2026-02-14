@@ -3,9 +3,9 @@ requires = ["hatchling>=1.27.0"]
 build-backend = "hatchling.build"
 
 [project]
-name = "openclaw-agent"
+name = "denosysbot"
 version = "0.1.0"
-description = "OpenClaw-style autonomous coding agent scaffold"
+description = "DenosysBot-style autonomous coding agent scaffold"
 readme = "README.md"
 requires-python = ">=3.12"
 authors = [
@@ -29,8 +29,8 @@ dev = [
 ]
 
 [project.scripts]
-agent = "openclaw_agent.cli:main"
-openclaw-installer = "openclaw_agent.installer:main"
+denosysbot = "denosysbot.cli:main"
+denosysbot-installer = "denosysbot.installer:main"
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

@@ -1,4 +1,4 @@
-from openclaw_agent.queue.tasks import dispatch_stage
+from denosysbot.queue.tasks import dispatch_stage
 
 
 def test_dispatch_stage_invokes_orchestration() -> None:

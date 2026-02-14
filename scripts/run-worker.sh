@@ -12,4 +12,4 @@ fi
 # shellcheck disable=SC1091
 source .venv/bin/activate
 
-exec .venv/bin/celery -A openclaw_agent.queue.celery_app worker --loglevel=INFO
+exec .venv/bin/celery -A denosysbot.queue.celery_app worker --loglevel=INFO

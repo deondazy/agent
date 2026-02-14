@@ -4,11 +4,11 @@ from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from openclaw_agent.adapters.models.gateway import ModelGateway
-from openclaw_agent.api.dependencies import get_model_gateway
-from openclaw_agent.api.schemas import CreateRunRequest, RunListResponse, RunResponse
-from openclaw_agent.domain.states import RunState
-from openclaw_agent.orchestration.engine import OrchestrationEngine
+from denosysbot.adapters.models.gateway import ModelGateway
+from denosysbot.api.dependencies import get_model_gateway
+from denosysbot.api.schemas import CreateRunRequest, RunListResponse, RunResponse
+from denosysbot.domain.states import RunState
+from denosysbot.orchestration.engine import OrchestrationEngine
 
 router = APIRouter(prefix="/runs", tags=["runs"])
 _engine = OrchestrationEngine()

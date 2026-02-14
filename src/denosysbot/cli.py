@@ -1,13 +1,13 @@
-"""Command-line entrypoints for Agent."""
+"""Command-line entrypoints for DenosysBot."""
 
 from collections.abc import Callable, Sequence
 from pathlib import Path
 import argparse
 import os
 
-from openclaw_agent.adapters.models.base import ProviderError
-from openclaw_agent.adapters.models.factory import build_model_gateway
-from openclaw_agent.core.config import get_settings
+from denosysbot.adapters.models.base import ProviderError
+from denosysbot.adapters.models.factory import build_model_gateway
+from denosysbot.core.config import get_settings
 
 InputFn = Callable[[str], str]
 OutputFn = Callable[[str], None]
@@ -35,7 +35,7 @@ def build_chat_prompt(history: list[tuple[str, str]], user_message: str) -> str:
     """Render conversation context into a provider-friendly prompt."""
 
     lines = [
-        "You are Agent, a concise coding assistant operating in a terminal.",
+        "You are DenosysBot, a concise coding assistant operating in a terminal.",
         "Respond with actionable answers.",
         "",
     ]
@@ -64,7 +64,7 @@ def run_tui(
         get_settings.cache_clear()
         gateway = build_model_gateway(get_settings())
 
-    output_fn("Agent TUI")
+    output_fn("DenosysBot TUI")
     output_fn("Type /exit to quit, /help for commands, /reset to clear context.")
 
     history: list[tuple[str, str]] = []
@@ -98,16 +98,16 @@ def run_tui(
         try:
             response = gateway.generate(prompt)
         except ProviderError as exc:
-            output_fn(f"agent> error: {exc}")
+            output_fn(f"denosysbot> error: {exc}")
             continue
 
-        output_fn(f"agent> {response}")
+        output_fn(f"denosysbot> {response}")
         history.append(("user", user_message))
         history.append(("assistant", response))
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="agent", description="Agent CLI")
+    parser = argparse.ArgumentParser(prog="denosysbot", description="DenosysBot CLI")
     subparsers = parser.add_subparsers(dest="command")
 
     subparsers.add_parser("tui", help="Open interactive chat TUI")

@@ -1,7 +1,7 @@
 """Run stage progression helpers."""
 
-from openclaw_agent.domain.states import RunState, next_stage, parse_state
-from openclaw_agent.orchestration.contracts import RunContext, StageResult
+from denosysbot.domain.states import RunState, next_stage, parse_state
+from denosysbot.orchestration.contracts import RunContext, StageResult
 
 
 class OrchestrationEngine:

@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass, field
 
-from openclaw_agent.domain.states import RunState
+from denosysbot.domain.states import RunState
 
 
 @dataclass(slots=True)

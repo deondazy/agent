@@ -11,12 +11,12 @@ except ModuleNotFoundError:  # pragma: no cover - exercised in dependency-light 
         def __init__(self, *args, **kwargs):
             self.conf = _DummyConfig()
 
-from openclaw_agent.core.config import get_settings
+from denosysbot.core.config import get_settings
 
 settings = get_settings()
 
 celery_app = Celery(
-    "openclaw_agent",
+    "denosysbot",
     broker=settings.redis_url,
     backend=settings.redis_url,
 )

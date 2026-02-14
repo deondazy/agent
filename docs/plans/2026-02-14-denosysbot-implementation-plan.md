@@ -1,8 +1,8 @@
-# OpenClaw-Style Agent Implementation Plan
+# DenosysBot-Style Agent Implementation Plan
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** Build a working v1 scaffold for an OpenClaw-style autonomous coding agent with issue-to-PR orchestration primitives.
+**Goal:** Build a working v1 scaffold for an DenosysBot-style autonomous coding agent with issue-to-PR orchestration primitives.
 
 **Architecture:** Implement a Python modular monolith with strict module boundaries for API, orchestration, policy, adapters, and worker execution. Start with deterministic core behavior (state machine, policy, orchestration contracts) and then layer API and worker integration. Keep external integrations adapter-based and test with fakes.
 
@@ -13,25 +13,25 @@
 **Files:**
 - Create: `pyproject.toml`
 - Create: `README.md`
-- Create: `src/openclaw_agent/__init__.py`
-- Create: `src/openclaw_agent/core/config.py`
+- Create: `src/denosysbot/__init__.py`
+- Create: `src/denosysbot/core/config.py`
 - Create: `tests/test_config.py`
 
 **Step 1: Write the failing test**
 
 ```python
-from openclaw_agent.core.config import Settings
+from denosysbot.core.config import Settings
 
 
 def test_defaults_are_loaded():
     settings = Settings()
-    assert settings.app_name == "openclaw-agent"
+    assert settings.app_name == "denosysbot"
 ```
 
 **Step 2: Run test to verify it fails**
 
 Run: `pytest tests/test_config.py::test_defaults_are_loaded -v`
-Expected: FAIL with `ModuleNotFoundError` for `openclaw_agent`
+Expected: FAIL with `ModuleNotFoundError` for `denosysbot`
 
 **Step 3: Write minimal implementation**
 
@@ -40,7 +40,7 @@ from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
-    app_name: str = "openclaw-agent"
+    app_name: str = "denosysbot"
 ```
 
 **Step 4: Run test to verify it passes**
@@ -51,14 +51,14 @@ Expected: PASS
 **Step 5: Commit**
 
 ```bash
-git add pyproject.toml README.md src/openclaw_agent/__init__.py src/openclaw_agent/core/config.py tests/test_config.py
-git commit -m "chore: bootstrap openclaw agent project"
+git add pyproject.toml README.md src/denosysbot/__init__.py src/denosysbot/core/config.py tests/test_config.py
+git commit -m "chore: bootstrap denosysbot agent project"
 ```
 
 ### Task 2: Run State Machine
 
 **Files:**
-- Create: `src/openclaw_agent/domain/states.py`
+- Create: `src/denosysbot/domain/states.py`
 - Create: `tests/domain/test_states.py`
 
 **Step 1: Write the failing test**
@@ -91,14 +91,14 @@ Expected: PASS
 **Step 5: Commit**
 
 ```bash
-git add src/openclaw_agent/domain/states.py tests/domain/test_states.py
+git add src/denosysbot/domain/states.py tests/domain/test_states.py
 git commit -m "feat: add run state machine transitions"
 ```
 
 ### Task 3: Policy Engine for Command Classification
 
 **Files:**
-- Create: `src/openclaw_agent/policy/engine.py`
+- Create: `src/denosysbot/policy/engine.py`
 - Create: `tests/policy/test_engine.py`
 
 **Step 1: Write the failing test**
@@ -139,15 +139,15 @@ Expected: PASS
 **Step 5: Commit**
 
 ```bash
-git add src/openclaw_agent/policy/engine.py tests/policy/test_engine.py
+git add src/denosysbot/policy/engine.py tests/policy/test_engine.py
 git commit -m "feat: implement command policy engine"
 ```
 
 ### Task 4: Orchestration Engine Skeleton
 
 **Files:**
-- Create: `src/openclaw_agent/orchestration/engine.py`
-- Create: `src/openclaw_agent/orchestration/contracts.py`
+- Create: `src/denosysbot/orchestration/engine.py`
+- Create: `src/denosysbot/orchestration/contracts.py`
 - Create: `tests/orchestration/test_engine.py`
 
 **Step 1: Write the failing test**
@@ -180,16 +180,16 @@ Expected: PASS
 **Step 5: Commit**
 
 ```bash
-git add src/openclaw_agent/orchestration/contracts.py src/openclaw_agent/orchestration/engine.py tests/orchestration/test_engine.py
+git add src/denosysbot/orchestration/contracts.py src/denosysbot/orchestration/engine.py tests/orchestration/test_engine.py
 git commit -m "feat: add orchestration engine skeleton"
 ```
 
 ### Task 5: API Endpoints for Run Lifecycle
 
 **Files:**
-- Create: `src/openclaw_agent/api/schemas.py`
-- Create: `src/openclaw_agent/api/routes/runs.py`
-- Create: `src/openclaw_agent/main.py`
+- Create: `src/denosysbot/api/schemas.py`
+- Create: `src/denosysbot/api/routes/runs.py`
+- Create: `src/denosysbot/main.py`
 - Create: `tests/api/test_runs.py`
 
 **Step 1: Write the failing test**
@@ -221,18 +221,18 @@ Expected: PASS
 **Step 5: Commit**
 
 ```bash
-git add src/openclaw_agent/api/schemas.py src/openclaw_agent/api/routes/runs.py src/openclaw_agent/main.py tests/api/test_runs.py
+git add src/denosysbot/api/schemas.py src/denosysbot/api/routes/runs.py src/denosysbot/main.py tests/api/test_runs.py
 git commit -m "feat: expose run lifecycle api"
 ```
 
 ### Task 6: Model Gateway with Provider Fallback
 
 **Files:**
-- Create: `src/openclaw_agent/adapters/models/base.py`
-- Create: `src/openclaw_agent/adapters/models/gateway.py`
-- Create: `src/openclaw_agent/adapters/models/openai.py`
-- Create: `src/openclaw_agent/adapters/models/anthropic.py`
-- Create: `src/openclaw_agent/adapters/models/ollama.py`
+- Create: `src/denosysbot/adapters/models/base.py`
+- Create: `src/denosysbot/adapters/models/gateway.py`
+- Create: `src/denosysbot/adapters/models/openai.py`
+- Create: `src/denosysbot/adapters/models/anthropic.py`
+- Create: `src/denosysbot/adapters/models/ollama.py`
 - Create: `tests/adapters/test_model_gateway.py`
 
 **Step 1: Write the failing test**
@@ -267,15 +267,15 @@ Expected: PASS
 **Step 5: Commit**
 
 ```bash
-git add src/openclaw_agent/adapters/models tests/adapters/test_model_gateway.py
+git add src/denosysbot/adapters/models tests/adapters/test_model_gateway.py
 git commit -m "feat: implement provider fallback gateway"
 ```
 
 ### Task 7: Worker Queue and Stage Tasks
 
 **Files:**
-- Create: `src/openclaw_agent/queue/celery_app.py`
-- Create: `src/openclaw_agent/queue/tasks.py`
+- Create: `src/denosysbot/queue/celery_app.py`
+- Create: `src/denosysbot/queue/tasks.py`
 - Create: `tests/queue/test_tasks.py`
 
 **Step 1: Write the failing test**
@@ -307,15 +307,15 @@ Expected: PASS
 **Step 5: Commit**
 
 ```bash
-git add src/openclaw_agent/queue/celery_app.py src/openclaw_agent/queue/tasks.py tests/queue/test_tasks.py
+git add src/denosysbot/queue/celery_app.py src/denosysbot/queue/tasks.py tests/queue/test_tasks.py
 git commit -m "feat: add celery queue stage tasks"
 ```
 
 ### Task 8: VM Worker Contract and README Runbook
 
 **Files:**
-- Create: `src/openclaw_agent/vm/contracts.py`
-- Create: `src/openclaw_agent/vm/provisioner.py`
+- Create: `src/denosysbot/vm/contracts.py`
+- Create: `src/denosysbot/vm/provisioner.py`
 - Modify: `README.md`
 - Create: `tests/vm/test_provisioner.py`
 
@@ -348,7 +348,7 @@ Expected: PASS
 **Step 5: Commit**
 
 ```bash
-git add src/openclaw_agent/vm/contracts.py src/openclaw_agent/vm/provisioner.py README.md tests/vm/test_provisioner.py
+git add src/denosysbot/vm/contracts.py src/denosysbot/vm/provisioner.py README.md tests/vm/test_provisioner.py
 git commit -m "docs: add vm contract and local runbook"
 ```
 
