@@ -46,17 +46,25 @@ def test_main_without_subcommand_shows_help(capsys) -> None:
 def test_run_tui_generates_response_and_exits() -> None:
     inputs = iter(["hello", "/exit"])
     outputs: list[str] = []
+    prompts: list[str] = []
     gateway = FakeGateway(responses=["hi there"])
+
+    def fake_input(prompt: str) -> str:
+        prompts.append(prompt)
+        return next(inputs)
 
     code = run_tui(
         gateway=gateway,
-        input_fn=lambda _prompt: next(inputs),
+        input_fn=fake_input,
         output_fn=outputs.append,
     )
 
     assert code == 0
-    assert any("DenosysBot TUI" in line for line in outputs)
+    assert any("DenoSysBot TUI" in line for line in outputs)
+    assert any("terminal AI assistant" in line for line in outputs)
+    assert any("Commands: /help, /reset, /exit" in line for line in outputs)
     assert any("denosysbot> hi there" in line for line in outputs)
+    assert prompts[0] == "> "
     assert len(gateway.prompts) == 1
 
 

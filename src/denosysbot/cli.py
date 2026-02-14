@@ -64,14 +64,15 @@ def run_tui(
         get_settings.cache_clear()
         gateway = build_model_gateway(get_settings())
 
-    output_fn("DenosysBot TUI")
-    output_fn("Type /exit to quit, /help for commands, /reset to clear context.")
+    output_fn("DenoSysBot TUI")
+    output_fn("DenoSysBot is your terminal AI assistant.")
+    output_fn("Commands: /help, /reset, /exit")
 
     history: list[tuple[str, str]] = []
 
     while True:
         try:
-            user_message = input_fn("you> ").strip()
+            user_message = input_fn("> ").strip()
         except EOFError:
             output_fn("Goodbye.")
             return 0
