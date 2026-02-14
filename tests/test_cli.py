@@ -1,4 +1,5 @@
 from collections import deque
+from pathlib import Path
 
 from denosysbot.adapters.models.base import ProviderError
 from denosysbot.cli import main, run_tui
@@ -32,6 +33,34 @@ def test_main_tui_invokes_interactive_mode(monkeypatch) -> None:
 
     assert code == 0
     assert called["ran"] is True
+
+
+def test_main_config_invokes_walkthrough_with_default_env(monkeypatch) -> None:
+    called = {"path": None}
+
+    def _fake_run_walkthrough(env_path: Path) -> None:
+        called["path"] = env_path
+
+    monkeypatch.setattr("denosysbot.cli.run_walkthrough", _fake_run_walkthrough)
+
+    code = main(["config"])
+
+    assert code == 0
+    assert called["path"] == Path(".env")
+
+
+def test_main_config_invokes_walkthrough_with_custom_env(monkeypatch) -> None:
+    called = {"path": None}
+
+    def _fake_run_walkthrough(env_path: Path) -> None:
+        called["path"] = env_path
+
+    monkeypatch.setattr("denosysbot.cli.run_walkthrough", _fake_run_walkthrough)
+
+    code = main(["config", "--env-file", "config/local.env"])
+
+    assert code == 0
+    assert called["path"] == Path("config/local.env")
 
 
 def test_main_without_subcommand_shows_help(capsys) -> None:

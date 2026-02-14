@@ -8,6 +8,7 @@ import os
 from denosysbot.adapters.models.base import ProviderError
 from denosysbot.adapters.models.factory import build_model_gateway
 from denosysbot.core.config import get_settings
+from denosysbot.installer import run_walkthrough
 
 InputFn = Callable[[str], str]
 OutputFn = Callable[[str], None]
@@ -112,6 +113,8 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command")
 
     subparsers.add_parser("tui", help="Open interactive chat TUI")
+    config_parser = subparsers.add_parser("config", help="Run guided configuration walkthrough")
+    config_parser.add_argument("--env-file", default=".env", help="Path to env file to update")
     return parser
 
 
@@ -121,6 +124,10 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.command == "tui":
         return run_tui()
+
+    if args.command == "config":
+        run_walkthrough(Path(args.env_file))
+        return 0
 
     parser.print_help()
     return 1
