@@ -5,10 +5,16 @@ from pathlib import Path
 from typing import Any
 import argparse
 import os
+import sys
 
 import httpx
 
 from denosysbot.adapters.models.base import ProviderError
+
+try:
+    import questionary
+except ImportError:  # pragma: no cover - optional dependency fallback.
+    questionary = None
 
 PROFILE_ORDERS: dict[str, tuple[str, ...]] = {
     "openai-anthropic-gemini-ollama": ("openai", "anthropic", "gemini", "ollama"),
@@ -49,6 +55,101 @@ class WalkthroughAnswers:
     gemini_model: str = DEFAULT_GEMINI_MODEL
     ollama_base_url: str = DEFAULT_OLLAMA_BASE_URL
     ollama_model: str = DEFAULT_OLLAMA_MODEL
+
+
+def _can_use_questionary_ui() -> bool:
+    if questionary is None:
+        return False
+    stdin_is_tty = callable(getattr(sys.stdin, "isatty", None)) and sys.stdin.isatty()
+    stdout_is_tty = callable(getattr(sys.stdout, "isatty", None)) and sys.stdout.isatty()
+    return bool(stdin_is_tty and stdout_is_tty)
+
+
+def _questionary_select_index(*, prompt: str, options: tuple[str, ...], default_index: int = 0) -> int:
+    if not options:
+        raise ValueError("options must not be empty")
+    if questionary is None:
+        raise RuntimeError("questionary is required for interactive selection")
+
+    bounded_default = max(0, min(default_index, len(options) - 1))
+    choices = [questionary.Choice(title=label, value=index) for index, label in enumerate(options)]
+    selected = questionary.select(
+        prompt,
+        choices=choices,
+        default=bounded_default,
+        use_shortcuts=False,
+        use_arrow_keys=True,
+    ).ask()
+    if selected is None:
+        return bounded_default
+    if isinstance(selected, int) and 0 <= selected < len(options):
+        return selected
+    return bounded_default
+
+
+def _select_multiple_from_options(
+    *, prompt: str, options: tuple[str, ...], default_indices: tuple[int, ...] = ()
+) -> tuple[int, ...]:
+    if not options:
+        return ()
+
+    if _can_use_questionary_ui():
+        if questionary is None:
+            raise RuntimeError("questionary is required for interactive selection")
+        valid_defaults = {
+            index
+            for index in default_indices
+            if isinstance(index, int) and 0 <= index < len(options)
+        }
+        choices = [
+            questionary.Choice(title=label, value=index, checked=index in valid_defaults)
+            for index, label in enumerate(options)
+        ]
+        selected = questionary.checkbox(
+            prompt,
+            choices=choices,
+            use_shortcuts=False,
+            use_arrow_keys=True,
+        ).ask()
+        if not selected:
+            return tuple(sorted(valid_defaults))
+        valid_selected = {
+            index
+            for index in selected
+            if isinstance(index, int) and 0 <= index < len(options)
+        }
+        return tuple(sorted(valid_selected))
+
+    default_labels = ", ".join(options[index] for index in default_indices if 0 <= index < len(options))
+    if default_labels:
+        print(f"{prompt} [{default_labels}]")
+    else:
+        print(prompt)
+    print("Enter comma-separated option numbers, or press enter for defaults:")
+    for index, label in enumerate(options, start=1):
+        suffix = " (default)" if (index - 1) in default_indices else ""
+        print(f"{index}) {label}{suffix}")
+
+    while True:
+        raw = input("Selections: ").strip()
+        if not raw:
+            return tuple(sorted(index for index in default_indices if 0 <= index < len(options)))
+        tokens = [token.strip() for token in raw.split(",") if token.strip()]
+        parsed: list[int] = []
+        invalid = False
+        for token in tokens:
+            if not token.isdigit():
+                invalid = True
+                break
+            numeric = int(token)
+            if numeric < 1 or numeric > len(options):
+                invalid = True
+                break
+            parsed.append(numeric - 1)
+        if invalid:
+            print(f"Invalid selection. Please enter numbers between 1 and {len(options)}.")
+            continue
+        return tuple(sorted(set(parsed)))
 
 
 def build_env_updates(answers: WalkthroughAnswers) -> dict[str, str]:
@@ -123,28 +224,32 @@ def _prompt(message: str, default: str | None = None) -> str:
 
 
 def _select_profile() -> str:
-    print("\nSelect provider profile:")
-    print("1) openai + anthropic + gemini + ollama (recommended)")
-    print("2) openai + anthropic + gemini")
-    print("3) openai + anthropic")
-    print("4) openai + gemini")
-    print("5) anthropic + gemini")
-    print("6) openai only")
-    print("7) anthropic only")
-    print("8) gemini only")
-    print("9) ollama only")
+    choices = (
+        ("openai + anthropic + gemini + ollama (recommended)", "openai-anthropic-gemini-ollama"),
+        ("openai + anthropic + gemini", "openai-anthropic-gemini"),
+        ("openai + anthropic", "openai-anthropic"),
+        ("openai + gemini", "openai-gemini"),
+        ("anthropic + gemini", "anthropic-gemini"),
+        ("openai only", "openai-only"),
+        ("anthropic only", "anthropic-only"),
+        ("gemini only", "gemini-only"),
+        ("ollama only", "ollama-only"),
+    )
+    labels = tuple(label for label, _profile in choices)
 
-    choice_map = {
-        "1": "openai-anthropic-gemini-ollama",
-        "2": "openai-anthropic-gemini",
-        "3": "openai-anthropic",
-        "4": "openai-gemini",
-        "5": "anthropic-gemini",
-        "6": "openai-only",
-        "7": "anthropic-only",
-        "8": "gemini-only",
-        "9": "ollama-only",
-    }
+    if _can_use_questionary_ui():
+        selected_index = _questionary_select_index(
+            prompt="Select provider profile",
+            options=labels,
+            default_index=0,
+        )
+        return choices[int(selected_index)][1]
+
+    print("\nSelect provider profile:")
+    for index, label in enumerate(labels, start=1):
+        print(f"{index}) {label}")
+
+    choice_map = {str(index): profile for index, (_label, profile) in enumerate(choices, start=1)}
 
     while True:
         choice = input("Enter choice [1]: ").strip() or "1"
@@ -165,6 +270,14 @@ def _select_model_from_options(
 
     default_index = options.index(default) + 1 if default in options else 1
     choice_map = {str(index): model for index, model in enumerate(options, start=1)}
+
+    if _can_use_questionary_ui():
+        selected_index = _questionary_select_index(
+            prompt=f"Select {provider_label} model",
+            options=options,
+            default_index=default_index - 1,
+        )
+        return options[int(selected_index)]
 
     print(f"\nSelect {provider_label} model:")
     for index, model in enumerate(options, start=1):

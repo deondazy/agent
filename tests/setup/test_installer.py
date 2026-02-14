@@ -1,6 +1,8 @@
 import httpx
 import pytest
+from types import SimpleNamespace
 
+import denosysbot.installer as installer
 from denosysbot.adapters.models.base import ProviderError
 from denosysbot.installer import (
     WalkthroughAnswers,
@@ -121,6 +123,92 @@ def test_select_model_from_options_returns_selected_provider_model(monkeypatch) 
     )
 
     assert selected == "gpt-5-mini"
+
+
+def test_select_model_from_options_uses_questionary_when_available(monkeypatch) -> None:
+    class FakePrompt:
+        def ask(self) -> int:
+            return 1
+
+    def fake_select(*_args, **_kwargs):
+        return FakePrompt()
+
+    monkeypatch.setattr(installer, "_can_use_questionary_ui", lambda: True)
+    monkeypatch.setattr(
+        installer,
+        "questionary",
+        SimpleNamespace(
+            Choice=lambda title, value, checked=False: {
+                "title": title,
+                "value": value,
+                "checked": checked,
+            },
+            select=fake_select,
+            checkbox=lambda *_args, **_kwargs: None,
+        ),
+    )
+
+    selected = _select_model_from_options(
+        provider_label="OpenAI",
+        options=("gpt-5", "gpt-5-mini"),
+        default="gpt-5",
+    )
+
+    assert selected == "gpt-5-mini"
+
+
+def test_select_profile_uses_questionary_when_available(monkeypatch) -> None:
+    class FakePrompt:
+        def ask(self) -> int:
+            return 4
+
+    monkeypatch.setattr(installer, "_can_use_questionary_ui", lambda: True)
+    monkeypatch.setattr(
+        installer,
+        "questionary",
+        SimpleNamespace(
+            Choice=lambda title, value, checked=False: {
+                "title": title,
+                "value": value,
+                "checked": checked,
+            },
+            select=lambda *_args, **_kwargs: FakePrompt(),
+            checkbox=lambda *_args, **_kwargs: None,
+        ),
+    )
+
+    selected = installer._select_profile()
+
+    assert selected == "anthropic-gemini"
+
+
+def test_select_multiple_from_options_uses_questionary_checkbox(monkeypatch) -> None:
+    class FakePrompt:
+        def ask(self) -> list[int]:
+            return [0, 2]
+
+    monkeypatch.setattr(installer, "_can_use_questionary_ui", lambda: True)
+    monkeypatch.setattr(
+        installer,
+        "questionary",
+        SimpleNamespace(
+            Choice=lambda title, value, checked=False: {
+                "title": title,
+                "value": value,
+                "checked": checked,
+            },
+            select=lambda *_args, **_kwargs: None,
+            checkbox=lambda *_args, **_kwargs: FakePrompt(),
+        ),
+    )
+
+    selected = installer._select_multiple_from_options(
+        prompt="Select providers",
+        options=("openai", "anthropic", "gemini"),
+        default_indices=(1,),
+    )
+
+    assert selected == (0, 2)
 
 
 def test_build_env_updates_for_ollama_profile() -> None:
