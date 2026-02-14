@@ -41,5 +41,8 @@ fi
 
 echo
 echo "Install complete."
-echo "Activate env: source .venv/bin/activate"
-echo "Run API:      uvicorn openclaw_agent.main:app --reload"
+echo "Project dir:  $ROOT_DIR"
+echo "Activate env: cd \"$ROOT_DIR\" && source .venv/bin/activate"
+echo "Run API:      cd \"$ROOT_DIR\" && .venv/bin/uvicorn openclaw_agent.main:app --reload --app-dir \"$ROOT_DIR\""
+echo "Run worker:   cd \"$ROOT_DIR\" && .venv/bin/celery -A openclaw_agent.queue.celery_app worker --loglevel=INFO"
+echo "Shortcuts:    $ROOT_DIR/scripts/run-api.sh  |  $ROOT_DIR/scripts/run-worker.sh"

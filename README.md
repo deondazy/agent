@@ -15,10 +15,11 @@ This repository contains a Python modular-monolith scaffold for an OpenClaw-styl
 ## Quick start
 
 ```bash
+cd /path/to/agent
 python -m venv .venv
 source .venv/bin/activate
 pip install -e .[dev]
-uvicorn openclaw_agent.main:app --reload
+.venv/bin/uvicorn openclaw_agent.main:app --reload --app-dir "$(pwd)"
 ```
 
 ## Installer Walkthrough
@@ -69,13 +70,24 @@ curl -fsSL https://raw.githubusercontent.com/deondazy/agent/main/scripts/bootstr
 ## Run tests
 
 ```bash
+cd /path/to/agent
+source .venv/bin/activate
 pytest -q
 ```
 
 ## Start a worker
 
 ```bash
-celery -A openclaw_agent.queue.celery_app worker --loglevel=INFO
+cd /path/to/agent
+source .venv/bin/activate
+.venv/bin/celery -A openclaw_agent.queue.celery_app worker --loglevel=INFO
+```
+
+Or use helper scripts:
+
+```bash
+./scripts/run-api.sh
+./scripts/run-worker.sh
 ```
 
 ## Model providers
