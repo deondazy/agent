@@ -27,8 +27,9 @@ fi
 # shellcheck disable=SC1091
 source .venv/bin/activate
 
-python -m pip install --upgrade pip
-python -m pip install -e ".[dev]"
+# Some machines have pip configured with global.user=true, which breaks venv installs.
+PIP_USER=0 python -m pip install --upgrade pip
+PIP_USER=0 python -m pip install -e ".[dev]"
 
 echo
 echo "Starting interactive walkthrough..."
