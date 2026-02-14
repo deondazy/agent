@@ -29,6 +29,7 @@ dev = [
 ]
 
 [project.scripts]
+agent = "openclaw_agent.cli:main"
 openclaw-installer = "openclaw_agent.installer:main"
 
 [tool.pytest.ini_options]

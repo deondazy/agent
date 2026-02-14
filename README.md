@@ -90,6 +90,22 @@ Or use helper scripts:
 ./scripts/run-worker.sh
 ```
 
+## Chat TUI
+
+After install, open an interactive chat session:
+
+```bash
+cd /path/to/agent
+source .venv/bin/activate
+agent tui
+```
+
+Commands inside TUI:
+
+- `/help` show commands
+- `/reset` clear conversation context
+- `/exit` quit
+
 ## Model providers
 
 Configure keys with environment variables:
