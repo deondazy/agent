@@ -15,7 +15,7 @@ class Settings:
     api_port: int = 8000
     redis_url: str = "redis://localhost:6379/0"
     database_url: str = "postgresql+psycopg://postgres:postgres@localhost:5432/denosysbot"
-    model_fallback_order: tuple[str, ...] = ("openai", "anthropic", "ollama")
+    model_fallback_order: tuple[str, ...] = ("openai", "anthropic", "gemini", "ollama")
     model_openai_model: str = "gpt-4.1"
     model_openai_base_url: str = "https://api.openai.com"
     model_openai_timeout_seconds: float = 60.0
@@ -29,6 +29,12 @@ class Settings:
     model_anthropic_max_retries: int = 2
     model_anthropic_initial_backoff_seconds: float = 0.5
     model_anthropic_max_backoff_seconds: float = 4.0
+    model_gemini_model: str = "gemini-2.5-flash"
+    model_gemini_base_url: str = "https://generativelanguage.googleapis.com"
+    model_gemini_timeout_seconds: float = 60.0
+    model_gemini_max_retries: int = 2
+    model_gemini_initial_backoff_seconds: float = 0.5
+    model_gemini_max_backoff_seconds: float = 4.0
     model_ollama_model: str = "llama3.2"
     model_ollama_base_url: str = "http://localhost:11434"
     model_ollama_timeout_seconds: float = 90.0
@@ -39,10 +45,10 @@ class Settings:
 
     @classmethod
     def from_env(cls) -> "Settings":
-        fallback_order = os.getenv("DENOSYSBOT_MODEL_FALLBACK_ORDER", "openai,anthropic,ollama")
+        fallback_order = os.getenv("DENOSYSBOT_MODEL_FALLBACK_ORDER", "openai,anthropic,gemini,ollama")
         parsed_fallback = tuple(part.strip() for part in fallback_order.split(",") if part.strip())
         if not parsed_fallback:
-            parsed_fallback = ("openai", "anthropic", "ollama")
+            parsed_fallback = ("openai", "anthropic", "gemini", "ollama")
 
         return cls(
             app_name=os.getenv("DENOSYSBOT_APP_NAME", "denosysbot"),
@@ -87,6 +93,21 @@ class Settings:
             ),
             model_anthropic_max_backoff_seconds=float(
                 os.getenv("DENOSYSBOT_MODEL_ANTHROPIC_MAX_BACKOFF_SECONDS", "4.0")
+            ),
+            model_gemini_model=os.getenv("DENOSYSBOT_MODEL_GEMINI_MODEL", "gemini-2.5-flash"),
+            model_gemini_base_url=os.getenv(
+                "DENOSYSBOT_MODEL_GEMINI_BASE_URL",
+                "https://generativelanguage.googleapis.com",
+            ),
+            model_gemini_timeout_seconds=float(
+                os.getenv("DENOSYSBOT_MODEL_GEMINI_TIMEOUT_SECONDS", "60.0")
+            ),
+            model_gemini_max_retries=int(os.getenv("DENOSYSBOT_MODEL_GEMINI_MAX_RETRIES", "2")),
+            model_gemini_initial_backoff_seconds=float(
+                os.getenv("DENOSYSBOT_MODEL_GEMINI_INITIAL_BACKOFF_SECONDS", "0.5")
+            ),
+            model_gemini_max_backoff_seconds=float(
+                os.getenv("DENOSYSBOT_MODEL_GEMINI_MAX_BACKOFF_SECONDS", "4.0")
             ),
             model_ollama_model=os.getenv("DENOSYSBOT_MODEL_OLLAMA_MODEL", "llama3.2"),
             model_ollama_base_url=os.getenv(

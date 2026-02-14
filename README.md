@@ -35,7 +35,7 @@ What it does:
 1. Detects Python (`python3.12` preferred, then `python3`)
 2. Creates `.venv` if missing
 3. Installs package + dev dependencies
-4. Launches an interactive walkthrough to write/update `.env`
+4. Launches an interactive walkthrough to write/update `.env`, querying each selected provider for live available models before prompting model selection
 5. Prints exact commands to start API, Redis, and Celery worker
 
 You can also run the walkthrough directly after install:
@@ -112,11 +112,12 @@ Configure keys with environment variables:
 
 - `OPENAI_API_KEY`
 - `ANTHROPIC_API_KEY`
+- `GEMINI_API_KEY`
 - `OLLAMA_API_KEY` (optional for local Ollama)
 
 Provider gateway runtime configuration:
 
-- `DENOSYSBOT_MODEL_FALLBACK_ORDER` (comma-separated, e.g. `openai,anthropic,ollama`)
+- `DENOSYSBOT_MODEL_FALLBACK_ORDER` (comma-separated, e.g. `openai,anthropic,gemini,ollama`)
 - `DENOSYSBOT_MODEL_OPENAI_MODEL`, `DENOSYSBOT_MODEL_OPENAI_BASE_URL`
 - `DENOSYSBOT_MODEL_OPENAI_TIMEOUT_SECONDS`, `DENOSYSBOT_MODEL_OPENAI_MAX_RETRIES`
 - `DENOSYSBOT_MODEL_OPENAI_INITIAL_BACKOFF_SECONDS`, `DENOSYSBOT_MODEL_OPENAI_MAX_BACKOFF_SECONDS`
@@ -124,6 +125,9 @@ Provider gateway runtime configuration:
 - `DENOSYSBOT_MODEL_ANTHROPIC_VERSION`, `DENOSYSBOT_MODEL_ANTHROPIC_TIMEOUT_SECONDS`
 - `DENOSYSBOT_MODEL_ANTHROPIC_MAX_RETRIES`
 - `DENOSYSBOT_MODEL_ANTHROPIC_INITIAL_BACKOFF_SECONDS`, `DENOSYSBOT_MODEL_ANTHROPIC_MAX_BACKOFF_SECONDS`
+- `DENOSYSBOT_MODEL_GEMINI_MODEL`, `DENOSYSBOT_MODEL_GEMINI_BASE_URL`
+- `DENOSYSBOT_MODEL_GEMINI_TIMEOUT_SECONDS`, `DENOSYSBOT_MODEL_GEMINI_MAX_RETRIES`
+- `DENOSYSBOT_MODEL_GEMINI_INITIAL_BACKOFF_SECONDS`, `DENOSYSBOT_MODEL_GEMINI_MAX_BACKOFF_SECONDS`
 - `DENOSYSBOT_MODEL_OLLAMA_MODEL`, `DENOSYSBOT_MODEL_OLLAMA_BASE_URL`
 - `DENOSYSBOT_MODEL_OLLAMA_TIMEOUT_SECONDS`, `DENOSYSBOT_MODEL_OLLAMA_MAX_RETRIES`
 - `DENOSYSBOT_MODEL_OLLAMA_INITIAL_BACKOFF_SECONDS`, `DENOSYSBOT_MODEL_OLLAMA_MAX_BACKOFF_SECONDS`
@@ -132,6 +136,7 @@ Provider adapters implemented:
 
 - `OpenAIProvider` -> `POST /v1/responses`
 - `AnthropicProvider` -> `POST /v1/messages`
+- `GeminiProvider` -> `POST /v1beta/models/{model}:generateContent`
 - `OllamaProvider` -> `POST /api/generate`
 
 Each adapter includes retry/backoff for transient HTTP failures and raises `ProviderError` for non-retriable failures. `ModelGateway` handles cross-provider fallback.

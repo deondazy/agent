@@ -6,6 +6,7 @@ import pytest
 
 from denosysbot.adapters.models.anthropic import AnthropicProvider
 from denosysbot.adapters.models.base import ProviderError
+from denosysbot.adapters.models.gemini import GeminiProvider
 from denosysbot.adapters.models.ollama import OllamaProvider
 from denosysbot.adapters.models.openai import OpenAIProvider
 
@@ -129,3 +130,37 @@ def test_ollama_provider_calls_generate_api_and_extracts_text() -> None:
     )
 
     assert provider.generate("hello") == "hello from ollama"
+
+
+def test_gemini_provider_calls_generate_content_api_and_extracts_text() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "POST"
+        assert request.url.path == "/v1beta/models/gemini-2.5-flash:generateContent"
+        assert request.headers["x-goog-api-key"] == "test-gemini-key"
+        payload = json.loads(request.read().decode("utf-8"))
+        assert payload["contents"] == [{"parts": [{"text": "hello"}]}]
+        return httpx.Response(
+            200,
+            json={
+                "candidates": [
+                    {
+                        "content": {
+                            "parts": [
+                                {"text": "hello from gemini"},
+                            ]
+                        }
+                    }
+                ]
+            },
+        )
+
+    provider = GeminiProvider(
+        api_key="test-gemini-key",
+        model="gemini-2.5-flash",
+        http_client=_make_client(handler),
+        max_retries=0,
+        initial_backoff_seconds=0,
+        sleep_fn=lambda _seconds: None,
+    )
+
+    assert provider.generate("hello") == "hello from gemini"

@@ -2,6 +2,7 @@
 
 from denosysbot.adapters.models.anthropic import AnthropicProvider
 from denosysbot.adapters.models.gateway import ModelGateway
+from denosysbot.adapters.models.gemini import GeminiProvider
 from denosysbot.adapters.models.ollama import OllamaProvider
 from denosysbot.adapters.models.openai import OpenAIProvider
 from denosysbot.core.config import Settings
@@ -50,6 +51,19 @@ def build_model_gateway(settings: Settings) -> ModelGateway:
                     max_retries=settings.model_ollama_max_retries,
                     initial_backoff_seconds=settings.model_ollama_initial_backoff_seconds,
                     max_backoff_seconds=settings.model_ollama_max_backoff_seconds,
+                )
+            )
+            continue
+
+        if normalized == "gemini":
+            providers.append(
+                GeminiProvider(
+                    model=settings.model_gemini_model,
+                    base_url=settings.model_gemini_base_url,
+                    timeout_seconds=settings.model_gemini_timeout_seconds,
+                    max_retries=settings.model_gemini_max_retries,
+                    initial_backoff_seconds=settings.model_gemini_initial_backoff_seconds,
+                    max_backoff_seconds=settings.model_gemini_max_backoff_seconds,
                 )
             )
             continue
