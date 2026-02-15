@@ -2,10 +2,12 @@
 
 from collections.abc import Callable, Sequence
 from pathlib import Path
+from datetime import datetime
 import argparse
 import json
 import math
 import os
+import re
 import threading
 import sys
 
@@ -13,6 +15,14 @@ from denosysbot.adapters.models.base import ProviderError
 from denosysbot.adapters.models.factory import build_model_gateway
 from denosysbot.core.config import get_settings
 from denosysbot.installer import run_walkthrough
+from denosysbot.skills.engine import (
+    create_skill_file,
+    load_skills,
+    match_skills,
+    render_skill_context,
+    update_skill_file,
+)
+from denosysbot.tools.web import build_web_context
 
 InputFn = Callable[[str], str]
 OutputFn = Callable[[str], None]
@@ -45,6 +55,21 @@ ANSI_BOLD = "\033[1m"
 ANSI_RESET = "\033[0m"
 DEFAULT_HISTORY_PATH = Path.home() / ".denosysbot" / "history.json"
 HISTORY_PATH_ENV_VAR = "DENOSYSBOT_CHAT_HISTORY_PATH"
+DEFAULT_SKILLS_PATH = Path.home() / ".denosysbot" / "skills"
+SKILLS_PATH_ENV_VAR = "DENOSYSBOT_SKILLS_DIR"
+ENABLE_WEB_BROWSE_ENV_VAR = "DENOSYSBOT_ENABLE_WEB_BROWSE"
+AUTO_WEB_BROWSE_HINTS: tuple[str, ...] = (
+    "search",
+    "browse",
+    "look up",
+    "lookup",
+    "latest",
+    "current",
+    "today",
+    "news",
+    "price",
+)
+WORD_PATTERN = re.compile(r"[a-z0-9][a-z0-9_-]{1,}")
 
 
 def load_env_file(path: Path = Path(".env")) -> None:
@@ -65,16 +90,39 @@ def load_env_file(path: Path = Path(".env")) -> None:
             os.environ[key] = value
 
 
-def build_chat_prompt(history: list[tuple[str, str]], user_message: str) -> str:
+def build_chat_prompt(
+    history: list[tuple[str, str]],
+    user_message: str,
+    *,
+    context_blocks: list[str] | None = None,
+) -> str:
     """Render conversation context into a provider-friendly prompt."""
+
+    now_local = datetime.now().astimezone()
+    offset = now_local.strftime("%z")
+    if len(offset) == 5:
+        offset = f"{offset[:3]}:{offset[3:]}"
+    timezone_name = now_local.tzname() or "local"
+    local_timestamp = now_local.strftime("%Y-%m-%d %H:%M:%S")
 
     lines = [
         "You are DenosysBot, a concise coding assistant operating in a terminal.",
         "Respond with actionable answers.",
         "Treat the provided conversation history as persistent memory across sessions.",
         "If the user asks what you remember, use the history directly.",
+        f"Current local date/time: {local_timestamp} {timezone_name} ({offset})",
+        "Use this timestamp as authoritative for 'now' unless the user asks for a different timezone.",
+        "Never guess date/time values.",
         "",
     ]
+
+    if context_blocks:
+        lines.append("Runtime context:")
+        for block in context_blocks:
+            payload = block.strip()
+            if payload:
+                lines.append(payload)
+                lines.append("")
 
     if history:
         lines.append("Conversation so far:")
@@ -98,6 +146,19 @@ def resolve_history_path(path: Path | None = None) -> Path:
         return Path(configured).expanduser()
 
     return DEFAULT_HISTORY_PATH
+
+
+def resolve_skills_path(path: Path | None = None) -> Path:
+    """Resolve local skills directory from explicit value, env, or default path."""
+
+    if path is not None:
+        return path
+
+    configured = os.getenv(SKILLS_PATH_ENV_VAR)
+    if configured:
+        return Path(configured).expanduser()
+
+    return DEFAULT_SKILLS_PATH
 
 
 def load_chat_history(path: Path) -> list[tuple[str, str]]:
@@ -140,6 +201,51 @@ def persist_chat_history(path: Path, history: list[tuple[str, str]]) -> None:
         return
 
 
+def _parse_skill_create_payload(payload: str) -> tuple[str, str, tuple[str, ...]] | None:
+    sections = [section.strip() for section in payload.split("|")]
+    if len(sections) < 2:
+        return None
+
+    name = sections[0]
+    description = sections[1]
+    if not name or not description:
+        return None
+
+    triggers: tuple[str, ...] = ()
+    if len(sections) >= 3:
+        raw = [item.strip() for item in sections[2].split(",")]
+        triggers = tuple(item for item in raw if item)
+    return name, description, triggers
+
+
+def _parse_skill_learn_payload(payload: str) -> tuple[str, str] | None:
+    sections = [section.strip() for section in payload.split("|")]
+    if len(sections) < 2:
+        return None
+    name, topic = sections[0], sections[1]
+    if not name or not topic:
+        return None
+    return name, topic
+
+
+def _extract_keywords(value: str, *, max_keywords: int = 8) -> tuple[str, ...]:
+    keywords: list[str] = []
+    for token in WORD_PATTERN.findall(value.lower()):
+        if token not in keywords:
+            keywords.append(token)
+    return tuple(keywords[:max_keywords]) or ("skill",)
+
+
+def _is_web_browse_enabled() -> bool:
+    raw = os.getenv(ENABLE_WEB_BROWSE_ENV_VAR, "1").strip().lower()
+    return raw not in {"0", "false", "no", "off"}
+
+
+def _should_auto_browse_web(user_message: str) -> bool:
+    lowered = user_message.lower()
+    return any(hint in lowered for hint in AUTO_WEB_BROWSE_HINTS)
+
+
 def run_tui(
     *,
     gateway=None,
@@ -149,6 +255,7 @@ def run_tui(
     progress_phrase_interval_seconds: float = 4.2,
     inplace_progress: bool | None = None,
     history_path: Path | None = None,
+    skills_path: Path | None = None,
 ) -> int:
     """Run interactive terminal chat loop."""
 
@@ -159,9 +266,10 @@ def run_tui(
 
     output_fn("DenoSysBot TUI")
     output_fn("DenoSysBot is your terminal AI assistant.")
-    output_fn("Commands: /help, /reset, /exit")
+    output_fn("Commands: /help, /reset, /exit, /skills, /skill create, /skill edit, /skill learn, /web")
 
     resolved_history_path = resolve_history_path(history_path)
+    resolved_skills_path = resolve_skills_path(skills_path)
     history = load_chat_history(resolved_history_path)
     progress_phrase_index = 0
     progress_interval_seconds = max(progress_interval_seconds, 0.01)
@@ -190,7 +298,7 @@ def run_tui(
             return 0
 
         if lowered == "/help":
-            output_fn("Commands: /help, /reset, /exit")
+            output_fn("Commands: /help, /reset, /exit, /skills, /skill create, /skill edit, /skill learn, /web")
             continue
 
         if lowered == "/reset":
@@ -199,7 +307,127 @@ def run_tui(
             output_fn("Conversation reset.")
             continue
 
-        prompt = build_chat_prompt(history, user_message)
+        if lowered == "/skills":
+            skills = load_skills(resolved_skills_path)
+            if not skills:
+                output_fn("No skills found.")
+                continue
+            output_fn(f"Skills ({len(skills)}):")
+            for skill in skills:
+                output_fn(f"- {skill.name}: {skill.description}")
+            continue
+
+        if lowered.startswith("/skill create "):
+            parsed = _parse_skill_create_payload(user_message[len("/skill create ") :].strip())
+            if parsed is None:
+                output_fn("Usage: /skill create <name> | <description> | <trigger1,trigger2>")
+                continue
+            name, description, triggers = parsed
+            created = create_skill_file(
+                skills_dir=resolved_skills_path,
+                name=name,
+                description=description,
+                triggers=triggers,
+            )
+            output_fn(f"Created skill: {created}")
+            continue
+
+        if lowered.startswith("/skill edit "):
+            parsed = _parse_skill_create_payload(user_message[len("/skill edit ") :].strip())
+            if parsed is None:
+                output_fn("Usage: /skill edit <name> | <description> | <trigger1,trigger2>")
+                continue
+            name, description, triggers = parsed
+            try:
+                updated = update_skill_file(
+                    skills_dir=resolved_skills_path,
+                    name=name,
+                    description=description,
+                    triggers=triggers,
+                )
+            except FileNotFoundError:
+                output_fn(f"Skill not found: {name}")
+                continue
+            except ValueError as exc:
+                output_fn(f"Skill update failed: {exc}")
+                continue
+            output_fn(f"Updated skill: {updated}")
+            continue
+
+        if lowered.startswith("/skill learn "):
+            parsed = _parse_skill_learn_payload(user_message[len("/skill learn ") :].strip())
+            if parsed is None:
+                output_fn("Usage: /skill learn <name> | <topic to research>")
+                continue
+            name, topic = parsed
+            try:
+                web_context, results = build_web_context(topic, max_results=3)
+            except Exception as exc:  # pragma: no cover - network/runtime variability.
+                output_fn(f"denosysbot> web error: {exc}")
+                continue
+            if not results:
+                output_fn("denosysbot> web: no results found.")
+                continue
+
+            learned_body_lines = [
+                "# Workflow",
+                "",
+                "1. Review sources listed below before acting.",
+                "2. Apply the referenced practices to user requests.",
+                "3. Verify output against source guidance.",
+                "",
+                "## Learned References",
+                "",
+                web_context,
+            ]
+            created = create_skill_file(
+                skills_dir=resolved_skills_path,
+                name=name,
+                description=f"Learned guidance for {topic}",
+                triggers=_extract_keywords(topic),
+                body="\n".join(learned_body_lines),
+            )
+            output_fn(f"Created skill: {created}")
+            output_fn(f"Learned from {len(results)} web result(s).")
+            continue
+
+        if lowered.startswith("/web "):
+            query = user_message[len("/web ") :].strip()
+            if not query:
+                output_fn("Usage: /web <query>")
+                continue
+            try:
+                _web_context, results = build_web_context(query, max_results=3)
+            except Exception as exc:  # pragma: no cover - network/runtime variability.
+                output_fn(f"denosysbot> web error: {exc}")
+                continue
+            if not results:
+                output_fn("denosysbot> web: no results found.")
+                continue
+            output_fn("Web results:")
+            for index, result in enumerate(results, start=1):
+                output_fn(f"{index}. {result.title} - {result.url}")
+                excerpt = getattr(result, "excerpt", "")
+                if isinstance(excerpt, str) and excerpt:
+                    output_fn(f"   {excerpt}")
+            continue
+
+        context_blocks: list[str] = []
+        matched_skills = match_skills(user_message, load_skills(resolved_skills_path))
+        skills_context = render_skill_context(matched_skills)
+        if skills_context:
+            context_blocks.append(skills_context)
+
+        if _is_web_browse_enabled() and _should_auto_browse_web(user_message):
+            try:
+                web_context, web_results = build_web_context(user_message, max_results=3)
+            except Exception:  # pragma: no cover - network/runtime variability.
+                web_context = ""
+                web_results = []
+            if web_context and web_results:
+                context_blocks.append(web_context)
+
+        prompt = build_chat_prompt(history, user_message, context_blocks=context_blocks)
         stop_progress = threading.Event()
         progress_line_length = 0
         progress_line_lock = threading.Lock()

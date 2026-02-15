@@ -104,11 +104,24 @@ Commands inside TUI:
 
 - `/help` show commands
 - `/reset` clear conversation context (including persisted history)
+- `/skills` list local markdown skills
+- `/skill create <name> | <description> | <trigger1,trigger2>` create a local skill file
+- `/skill edit <name> | <description> | <trigger1,trigger2>` update an existing local skill file
+- `/skill learn <name> | <topic>` browse web references and create a learned skill file
+- `/web <query>` run live web search and print source links
 - `/exit` quit
 
 Chat history is now persisted between `denosysbot tui` sessions by default at
 `~/.denosysbot/history.json`. Override this path with
 `DENOSYSBOT_CHAT_HISTORY_PATH`.
+
+Local skills are loaded from `~/.denosysbot/skills` by default. Override with
+`DENOSYSBOT_SKILLS_DIR`. Matched skills are automatically injected into chat
+prompt context when relevant to the user message.
+
+Web browsing is enabled by default for `/web`, `/skill learn`, and automatic
+lookup hints in normal messages. Disable auto web enrichment for normal chat by
+setting `DENOSYSBOT_ENABLE_WEB_BROWSE=0`.
 
 ## Model providers
 
