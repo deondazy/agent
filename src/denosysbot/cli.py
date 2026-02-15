@@ -507,6 +507,7 @@ def run_tui(
                     skill_name=skill_name,
                     source_url=urls[0],
                     pages=list(results),
+                    model_generate=gateway.generate,
                 )
                 created = create_skill_folder(
                     skills_dir=resolved_skills_path,

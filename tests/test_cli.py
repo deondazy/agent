@@ -574,3 +574,97 @@ def test_run_tui_natural_language_url_skill_request_creates_skill(
     assert "https://filamentphp.com/docs/5.x/getting-started" in skill_text
     assert any("Created skill:" in line for line in outputs)
     assert gateway.prompts == []
+
+
+def test_run_tui_natural_language_url_skill_request_uses_model_synthesis(
+    tmp_path: Path, monkeypatch
+) -> None:
+    import denosysbot.cli as cli_module
+
+    pages = [
+        SimpleNamespace(
+            url="https://filamentphp.com/docs/5.x/getting-started",
+            title="Getting Started",
+            excerpt="Filament setup and installation.",
+            depth=0,
+            markdown=(
+                "# Getting Started\n"
+                "Filament provides an admin panel builder.\n"
+                "composer require filament/filament:\"^5.0\"\n"
+                "php artisan filament:install --panels\n"
+            ),
+            headings=("Getting Started", "Installation"),
+            code_blocks=(
+                'composer require filament/filament:"^5.0"',
+                "php artisan filament:install --panels",
+            ),
+        ),
+        SimpleNamespace(
+            url="https://filamentphp.com/docs/5.x/resources/overview",
+            title="Resources Overview",
+            excerpt="Resources are static CRUD definitions.",
+            depth=1,
+            markdown=(
+                "# Resources\n"
+                "Resources are static classes used to build CRUD interfaces.\n"
+                "php artisan make:filament-resource Customer --generate\n"
+            ),
+            headings=("Resources", "Overview"),
+            code_blocks=("php artisan make:filament-resource Customer --generate",),
+        ),
+    ]
+
+    monkeypatch.setattr(
+        cli_module,
+        "crawl_docs_site",
+        lambda start_url, max_pages=16, max_depth=2, http_client=None: pages,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        cli_module,
+        "build_crawl_context",
+        lambda crawled: ("Crawled context", crawled),
+        raising=False,
+    )
+
+    skills_dir = tmp_path / "skills"
+    monkeypatch.setenv("DENOSYSBOT_SKILLS_DIR", str(skills_dir))
+
+    model_response = (
+        "{"
+        '"description":"FilamentPHP v5 setup, resources, and table workflows from official docs.",'
+        '"triggers":["filament","resources","tables"],'
+        '"core_concepts":["Resources define CRUD interfaces.","Panel providers register auth and navigation."],'
+        '"installation_commands":["composer require filament/filament:\\"^5.0\\"","php artisan filament:install --panels"],'
+        '"common_commands":["php artisan make:filament-user","php artisan make:filament-resource Customer --generate"],'
+        '"best_practices":["Use generated resources and split schema/table configuration for maintainability."],'
+        '"pitfalls":["Check namespace changes when migrating older Filament projects."],'
+        '"page_highlights":[{"page":"Resources Overview","url":"https://filamentphp.com/docs/5.x/resources/overview","highlight":"Resources are static classes used to build CRUD interfaces."}]'
+        "}"
+    )
+
+    inputs = iter(
+        [
+            "Go to https://filamentphp.com/docs/5.x/getting-started learn everything about filament v5 and create a skill for it",
+            "/exit",
+        ]
+    )
+    outputs: list[str] = []
+    gateway = FakeGateway(responses=[model_response])
+    history_path = tmp_path / "history.json"
+
+    code = run_tui(
+        gateway=gateway,
+        input_fn=lambda _prompt: next(inputs),
+        output_fn=outputs.append,
+        history_path=history_path,
+    )
+
+    created_files = list(skills_dir.glob("**/SKILL.md"))
+    assert code == 0
+    assert len(created_files) == 1
+    skill_text = created_files[0].read_text()
+    assert "## Best Practices" in skill_text
+    assert "## Pitfalls & Notes" in skill_text
+    assert "php artisan make:filament-user" in skill_text
+    assert len(gateway.prompts) == 1
