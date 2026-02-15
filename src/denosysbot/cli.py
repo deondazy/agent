@@ -3,6 +3,7 @@
 from collections.abc import Callable, Sequence
 from pathlib import Path
 import argparse
+import math
 import os
 import threading
 import sys
@@ -20,8 +21,27 @@ PROGRESS_PHRASES: tuple[str, ...] = (
     "working through it",
     "drafting a response",
     "checking options",
+    "reviewing your request",
+    "organizing the approach",
+    "mapping out the answer",
+    "preparing a clear response",
+    "checking context",
+    "lining up the next step",
+    "sorting through possibilities",
+    "pulling the key details together",
+    "refining the response",
+    "double-checking the output",
+    "finalizing the wording",
+    "wrapping this up",
+    "making sure this is accurate",
+    "keeping it concise",
+    "sanity-checking before reply",
+    "readying the final response",
 )
 ELLIPSIS_FRAMES: tuple[str, ...] = (".", "..", "...")
+BOT_NAME = "DenoSysBot"
+ANSI_BOLD = "\033[1m"
+ANSI_RESET = "\033[0m"
 
 
 def load_env_file(path: Path = Path(".env")) -> None:
@@ -68,7 +88,7 @@ def run_tui(
     input_fn: InputFn = input,
     output_fn: OutputFn = print,
     progress_interval_seconds: float = 0.35,
-    progress_phrase_interval_seconds: float = 1.4,
+    progress_phrase_interval_seconds: float = 4.2,
     inplace_progress: bool | None = None,
 ) -> int:
     """Run interactive terminal chat loop."""
@@ -90,7 +110,7 @@ def run_tui(
     )
     phrase_hold_ticks = max(
         1,
-        round(progress_phrase_interval_seconds / progress_interval_seconds),
+        math.ceil(progress_phrase_interval_seconds / progress_interval_seconds),
     )
     use_inplace_progress = output_fn is print if inplace_progress is None else inplace_progress
 
@@ -180,7 +200,8 @@ def run_tui(
             output_fn(f"denosysbot> error: {provider_error}")
             continue
 
-        output_fn(f"denosysbot> {response}")
+        output_fn(f"{ANSI_BOLD}{BOT_NAME}{ANSI_RESET}")
+        output_fn(response)
         history.append(("user", user_message))
         history.append(("assistant", response))
 

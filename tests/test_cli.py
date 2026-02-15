@@ -1,9 +1,17 @@
 from collections import deque
+import inspect
 from pathlib import Path
+import re
 import time
 
 from denosysbot.adapters.models.base import ProviderError
-from denosysbot.cli import main, run_tui
+from denosysbot.cli import PROGRESS_PHRASES, main, run_tui
+
+ANSI_PATTERN = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def strip_ansi(value: str) -> str:
+    return ANSI_PATTERN.sub("", value)
 
 
 class FakeGateway:
@@ -107,11 +115,15 @@ def test_run_tui_generates_response_and_exits() -> None:
     assert any("terminal AI assistant" in line for line in outputs)
     assert any("Commands: /help, /reset, /exit" in line for line in outputs)
     assert any(line.startswith("denosysbot> thinking") for line in outputs)
-    assert any("denosysbot> hi there" in line for line in outputs)
+    normalized_outputs = [strip_ansi(line) for line in outputs]
+    assert "DenoSysBot" in normalized_outputs
+    assert "hi there" in normalized_outputs
+    assert normalized_outputs.index("DenoSysBot") < normalized_outputs.index("hi there")
+    assert normalized_outputs.index("hi there") == normalized_outputs.index("DenoSysBot") + 1
     first_progress_index = next(
         idx for idx, line in enumerate(outputs) if line.startswith("denosysbot> thinking")
     )
-    assert first_progress_index < outputs.index("denosysbot> hi there")
+    assert first_progress_index < normalized_outputs.index("DenoSysBot")
     assert prompts[0] == ""
     assert len(gateway.prompts) == 1
 
@@ -183,3 +195,13 @@ def test_run_tui_animates_ellipsis_while_waiting_for_response() -> None:
     assert len(progress_lines) >= 2
     assert len(set(phrases)) == 1
     assert len(set(ellipsis_suffixes)) >= 2
+
+
+def test_progress_phrase_pool_is_large() -> None:
+    assert len(PROGRESS_PHRASES) >= 16
+
+
+def test_run_tui_default_phrase_interval_is_slow() -> None:
+    signature = inspect.signature(run_tui)
+    default_interval = signature.parameters["progress_phrase_interval_seconds"].default
+    assert default_interval >= 3.0
