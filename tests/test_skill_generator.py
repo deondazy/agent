@@ -253,3 +253,71 @@ def test_build_skill_markdown_filters_noisy_documentation_pages() -> None:
 
     assert "https://filamentphp.com/docs/5.x/getting-started" in skill_md
     assert "https://filamentphp.com/docs/5.x/introduction/help" not in skill_md
+
+
+def test_build_skill_markdown_repairs_invalid_model_json_with_second_pass() -> None:
+    pages = [
+        CrawledPage(
+            url="https://filamentphp.com/docs/5.x/getting-started",
+            title="Getting Started",
+            excerpt="Install and configure Filament v5 panel builder.",
+            depth=0,
+            markdown=(
+                "Install Filament and scaffold an admin panel.\n"
+                "composer require filament/filament:\"^5.0\"\n"
+                "php artisan filament:install --panels\n"
+            ),
+            headings=("Getting Started", "Installation"),
+            code_blocks=(
+                'composer require filament/filament:"^5.0"',
+                "php artisan filament:install --panels",
+            ),
+        ),
+        CrawledPage(
+            url="https://filamentphp.com/docs/5.x/resources/overview",
+            title="Resources Overview",
+            excerpt="Resources define CRUD interfaces for models.",
+            depth=1,
+            markdown="Resources define CRUD interfaces and pages.",
+            headings=("Resources",),
+            code_blocks=("php artisan make:filament-resource Customer --generate",),
+        ),
+    ]
+
+    calls = {"count": 0}
+
+    def flaky_model(_prompt: str) -> str:
+        calls["count"] += 1
+        if calls["count"] == 1:
+            return "Here is your JSON: {invalid"
+        return (
+            "{"
+            '"description":"Filament v5 setup and CRUD workflow guidance from official docs.",'
+            '"triggers":["filament","resources"],'
+            '"core_concepts":["Filament v5 uses panel providers for admin configuration.","Resources define CRUD interfaces for Eloquent models.","Tables and forms are schema-driven for record management.","Actions provide modal-based workflow operations."],'
+            '"installation_commands":["composer require filament/filament:\\"^5.0\\"","php artisan filament:install --panels"],'
+            '"common_commands":["php artisan make:filament-user","php artisan make:filament-resource Customer --generate"],'
+            '"resources":["Resources define CRUD interfaces for Eloquent models.","Use generators to scaffold resource pages."],'
+            '"forms":["Build form schemas with reusable field components.","Keep validation close to schema field declarations."],'
+            '"tables":["Use sortable and searchable columns for list pages.","Add filters and actions for operational workflows."],'
+            '"actions":["Use actions for record-level workflows.","Require confirmation for destructive actions."],'
+            '"panel_configuration":["Configure panel path and auth in panel providers.","Discover resources and pages automatically."],'
+            '"testing":["Use Livewire tests for create and edit flows."],'
+            '"upgrade_notes":["Review namespace changes when migrating to v5."],'
+            '"best_practices":["Split schema and table logic into dedicated files."],'
+            '"pitfalls":["Avoid mixing deprecated namespaces with v5 imports."],'
+            '"page_highlights":[{"page":"Getting Started","url":"https://filamentphp.com/docs/5.x/getting-started","highlight":"Install Filament with composer and run panel installation commands to bootstrap the admin panel."}]'
+            "}"
+        )
+
+    skill_md = build_skill_markdown(
+        skill_name="filament-v5",
+        source_url="https://filamentphp.com/docs/5.x/getting-started",
+        pages=pages,
+        model_generate=flaky_model,
+        require_model=True,
+    )
+
+    assert calls["count"] == 2
+    assert "## Resources" in skill_md
+    assert "composer require filament/filament" in skill_md

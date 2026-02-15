@@ -318,6 +318,8 @@ def _build_model_assisted_draft(
 
     payload = _parse_model_payload(raw)
     if payload is None:
+        payload = _repair_model_payload(raw, model_generate=model_generate)
+    if payload is None:
         return None, "model returned invalid JSON payload for synthesis"
 
     concepts = _coerce_string_list(payload.get("core_concepts"), max_items=24, min_len=8)
@@ -443,7 +445,7 @@ def _build_model_prompt(
 
 def _build_model_corpus(pages: list[Any]) -> str:
     lines: list[str] = []
-    for index, page in enumerate(pages[:36], start=1):
+    for index, page in enumerate(pages[:20], start=1):
         url = str(getattr(page, "url", "")).strip()
         title = str(getattr(page, "title", "")).strip() or url
         excerpt = WHITESPACE_PATTERN.sub(" ", str(getattr(page, "excerpt", "")).strip())
@@ -496,25 +498,65 @@ def _extract_fact_lines(page: Any) -> list[str]:
 
 
 def _parse_model_payload(raw: str) -> dict[str, Any] | None:
-    candidate = raw.strip()
+    candidate = _extract_json_candidate(raw)
     if not candidate:
         return None
+    for attempt in (candidate, _normalize_json_candidate(candidate)):
+        if not attempt:
+            continue
+        try:
+            parsed = json.loads(attempt)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(parsed, dict):
+            return parsed
+    return None
+
+
+def _repair_model_payload(raw: str, *, model_generate: Callable[[str], str]) -> dict[str, Any] | None:
+    candidate = _extract_json_candidate(raw)
+    if not candidate:
+        candidate = raw.strip()
+    if not candidate:
+        return None
+
+    repair_prompt = (
+        "Convert the content below into strict JSON only.\n"
+        "Return a single JSON object and no markdown or prose.\n"
+        "If content is partial, preserve available fields and omit unknown fields.\n\n"
+        "CONTENT TO REPAIR:\n"
+        f"{candidate[:9000]}\n"
+    )
+    try:
+        repaired = model_generate(repair_prompt)
+    except Exception:
+        return None
+    return _parse_model_payload(repaired)
+
+
+def _extract_json_candidate(raw: str) -> str:
+    candidate = raw.strip()
+    if not candidate:
+        return ""
     if "```" in candidate:
         match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", candidate, flags=re.DOTALL)
         if match:
-            candidate = match.group(1).strip()
+            return match.group(1).strip()
     if not candidate.startswith("{"):
         start = candidate.find("{")
         end = candidate.rfind("}")
         if start >= 0 and end > start:
-            candidate = candidate[start : end + 1]
-    try:
-        parsed = json.loads(candidate)
-    except json.JSONDecodeError:
-        return None
-    if not isinstance(parsed, dict):
-        return None
-    return parsed
+            return candidate[start : end + 1].strip()
+    return candidate
+
+
+def _normalize_json_candidate(candidate: str) -> str:
+    normalized = candidate.strip()
+    if not normalized:
+        return ""
+    normalized = normalized.replace("\u201c", '"').replace("\u201d", '"').replace("\u2019", "'")
+    normalized = re.sub(r",\s*([}\]])", r"\1", normalized)
+    return normalized
 
 
 def _coerce_string_list(value: Any, *, max_items: int, min_len: int) -> list[str]:
