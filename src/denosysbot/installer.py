@@ -5,23 +5,16 @@ from pathlib import Path
 from typing import Any
 import argparse
 import os
+import sys
 
 import httpx
 
 from denosysbot.adapters.models.base import ProviderError
 
 try:
-    from textual.app import App, ComposeResult
-    from textual.binding import Binding
-    from textual.widgets import Footer, Header, Input, RichLog, Static
-
-    _TEXTUAL_IMPORT_ERROR: Exception | None = None
-except ImportError as exc:  # pragma: no cover - exercised only when dependency missing.
-    App = None  # type: ignore[assignment]
-    ComposeResult = Any  # type: ignore[assignment]
-    Binding = None  # type: ignore[assignment]
-    Footer = Header = Input = RichLog = Static = None  # type: ignore[assignment]
-    _TEXTUAL_IMPORT_ERROR = exc
+    import questionary
+except ImportError:  # pragma: no cover - optional dependency fallback.
+    questionary = None
 
 PROFILE_ORDERS: dict[str, tuple[str, ...]] = {
     "openai-anthropic-gemini-ollama": ("openai", "anthropic", "gemini", "ollama"),
@@ -33,25 +26,6 @@ PROFILE_ORDERS: dict[str, tuple[str, ...]] = {
     "anthropic-only": ("anthropic",),
     "gemini-only": ("gemini",),
     "ollama-only": ("ollama",),
-}
-
-PROFILE_CHOICES: tuple[tuple[str, str], ...] = (
-    ("openai + anthropic + gemini + ollama (recommended)", "openai-anthropic-gemini-ollama"),
-    ("openai + anthropic + gemini", "openai-anthropic-gemini"),
-    ("openai + anthropic", "openai-anthropic"),
-    ("openai + gemini", "openai-gemini"),
-    ("anthropic + gemini", "anthropic-gemini"),
-    ("openai only", "openai-only"),
-    ("anthropic only", "anthropic-only"),
-    ("gemini only", "gemini-only"),
-    ("ollama only", "ollama-only"),
-)
-
-PROVIDER_API_KEY_ENV: dict[str, str] = {
-    "openai": "OPENAI_API_KEY",
-    "anthropic": "ANTHROPIC_API_KEY",
-    "gemini": "GEMINI_API_KEY",
-    "ollama": "OLLAMA_API_KEY",
 }
 
 DEFAULT_OPENAI_BASE_URL = "https://api.openai.com"
@@ -83,16 +57,99 @@ class WalkthroughAnswers:
     ollama_model: str = DEFAULT_OLLAMA_MODEL
 
 
-@dataclass(slots=True)
-class _PromptStep:
-    kind: str
-    field: str
-    prompt: str
-    default: str = ""
-    provider_name: str | None = None
-    api_key_field: str | None = None
-    base_url_field: str | None = None
-    options: tuple[str, ...] | None = None
+def _can_use_questionary_ui() -> bool:
+    if questionary is None:
+        return False
+    stdin_is_tty = callable(getattr(sys.stdin, "isatty", None)) and sys.stdin.isatty()
+    stdout_is_tty = callable(getattr(sys.stdout, "isatty", None)) and sys.stdout.isatty()
+    return bool(stdin_is_tty and stdout_is_tty)
+
+
+def _questionary_select_index(*, prompt: str, options: tuple[str, ...], default_index: int = 0) -> int:
+    if not options:
+        raise ValueError("options must not be empty")
+    if questionary is None:
+        raise RuntimeError("questionary is required for interactive selection")
+
+    bounded_default = max(0, min(default_index, len(options) - 1))
+    choices = [questionary.Choice(title=label, value=index) for index, label in enumerate(options)]
+    selected = questionary.select(
+        prompt,
+        choices=choices,
+        default=bounded_default,
+        use_shortcuts=False,
+        use_arrow_keys=True,
+    ).ask()
+    if selected is None:
+        return bounded_default
+    if isinstance(selected, int) and 0 <= selected < len(options):
+        return selected
+    return bounded_default
+
+
+def _select_multiple_from_options(
+    *, prompt: str, options: tuple[str, ...], default_indices: tuple[int, ...] = ()
+) -> tuple[int, ...]:
+    if not options:
+        return ()
+
+    if _can_use_questionary_ui():
+        if questionary is None:
+            raise RuntimeError("questionary is required for interactive selection")
+        valid_defaults = {
+            index
+            for index in default_indices
+            if isinstance(index, int) and 0 <= index < len(options)
+        }
+        choices = [
+            questionary.Choice(title=label, value=index, checked=index in valid_defaults)
+            for index, label in enumerate(options)
+        ]
+        selected = questionary.checkbox(
+            prompt,
+            choices=choices,
+            use_shortcuts=False,
+            use_arrow_keys=True,
+        ).ask()
+        if not selected:
+            return tuple(sorted(valid_defaults))
+        valid_selected = {
+            index
+            for index in selected
+            if isinstance(index, int) and 0 <= index < len(options)
+        }
+        return tuple(sorted(valid_selected))
+
+    default_labels = ", ".join(options[index] for index in default_indices if 0 <= index < len(options))
+    if default_labels:
+        print(f"{prompt} [{default_labels}]")
+    else:
+        print(prompt)
+    print("Enter comma-separated option numbers, or press enter for defaults:")
+    for index, label in enumerate(options, start=1):
+        suffix = " (default)" if (index - 1) in default_indices else ""
+        print(f"{index}) {label}{suffix}")
+
+    while True:
+        raw = input("Selections: ").strip()
+        if not raw:
+            return tuple(sorted(index for index in default_indices if 0 <= index < len(options)))
+        tokens = [token.strip() for token in raw.split(",") if token.strip()]
+        parsed: list[int] = []
+        invalid = False
+        for token in tokens:
+            if not token.isdigit():
+                invalid = True
+                break
+            numeric = int(token)
+            if numeric < 1 or numeric > len(options):
+                invalid = True
+                break
+            parsed.append(numeric - 1)
+        if invalid:
+            print(f"Invalid selection. Please enter numbers between 1 and {len(options)}.")
+            continue
+        return tuple(sorted(set(parsed)))
 
 
 def build_env_updates(answers: WalkthroughAnswers) -> dict[str, str]:
@@ -156,6 +213,83 @@ def merge_env_content(existing_content: str, updates: dict[str, str]) -> str:
     if output and not output.endswith("\n"):
         output += "\n"
     return output
+
+
+def _prompt(message: str, default: str | None = None) -> str:
+    suffix = f" [{default}]" if default else ""
+    value = input(f"{message}{suffix}: ").strip()
+    if value:
+        return value
+    return default or ""
+
+
+def _select_profile() -> str:
+    choices = (
+        ("openai + anthropic + gemini + ollama (recommended)", "openai-anthropic-gemini-ollama"),
+        ("openai + anthropic + gemini", "openai-anthropic-gemini"),
+        ("openai + anthropic", "openai-anthropic"),
+        ("openai + gemini", "openai-gemini"),
+        ("anthropic + gemini", "anthropic-gemini"),
+        ("openai only", "openai-only"),
+        ("anthropic only", "anthropic-only"),
+        ("gemini only", "gemini-only"),
+        ("ollama only", "ollama-only"),
+    )
+    labels = tuple(label for label, _profile in choices)
+
+    if _can_use_questionary_ui():
+        selected_index = _questionary_select_index(
+            prompt="Select provider profile",
+            options=labels,
+            default_index=0,
+        )
+        return choices[int(selected_index)][1]
+
+    print("\nSelect provider profile:")
+    for index, label in enumerate(labels, start=1):
+        print(f"{index}) {label}")
+
+    choice_map = {str(index): profile for index, (_label, profile) in enumerate(choices, start=1)}
+
+    while True:
+        choice = input("Enter choice [1]: ").strip() or "1"
+        profile = choice_map.get(choice)
+        if profile:
+            return profile
+        print("Invalid choice. Please enter 1-9.")
+
+
+def _select_model_from_options(
+    *,
+    provider_label: str,
+    options: tuple[str, ...],
+    default: str,
+) -> str:
+    if not options:
+        return default
+
+    default_index = options.index(default) + 1 if default in options else 1
+    choice_map = {str(index): model for index, model in enumerate(options, start=1)}
+
+    if _can_use_questionary_ui():
+        selected_index = _questionary_select_index(
+            prompt=f"Select {provider_label} model",
+            options=options,
+            default_index=default_index - 1,
+        )
+        return options[int(selected_index)]
+
+    print(f"\nSelect {provider_label} model:")
+    for index, model in enumerate(options, start=1):
+        suffix = " (default)" if index == default_index else ""
+        print(f"{index}) {model}{suffix}")
+
+    while True:
+        choice = input(f"Enter choice [{default_index}]: ").strip() or str(default_index)
+        selected = choice_map.get(choice)
+        if selected:
+            return selected
+        print(f"Invalid choice. Please enter 1-{len(options)}.")
 
 
 def _request_json(
@@ -353,381 +487,111 @@ def _fetch_provider_models(
     return unique_models
 
 
-def _raise_textual_missing_for_config() -> None:
-    raise RuntimeError(
-        "textual is required for `denosysbot config`. Install dependencies with: pip install -e .[dev]"
-    ) from _TEXTUAL_IMPORT_ERROR
+def _collect_answers() -> WalkthroughAnswers:
+    profile = _select_profile()
+    selected_providers = PROFILE_ORDERS[profile]
 
+    openai_key = None
+    anthropic_key = None
+    gemini_key = None
+    ollama_key = None
+    openai_base_url = DEFAULT_OPENAI_BASE_URL
+    anthropic_base_url = DEFAULT_ANTHROPIC_BASE_URL
+    anthropic_version = DEFAULT_ANTHROPIC_VERSION
+    gemini_base_url = DEFAULT_GEMINI_BASE_URL
+    openai_model = DEFAULT_OPENAI_MODEL
+    anthropic_model = DEFAULT_ANTHROPIC_MODEL
+    gemini_model = DEFAULT_GEMINI_MODEL
+    ollama_base_url = DEFAULT_OLLAMA_BASE_URL
+    ollama_model = DEFAULT_OLLAMA_MODEL
 
-if _TEXTUAL_IMPORT_ERROR is None:
+    if "openai" in selected_providers:
+        openai_key = _prompt("OpenAI API key (optional if already exported)", "") or None
+        openai_base_url = _prompt("OpenAI base URL", DEFAULT_OPENAI_BASE_URL)
+        available_models = _fetch_provider_models(
+            provider_name="openai",
+            api_key=openai_key or os.getenv("OPENAI_API_KEY"),
+            base_url=openai_base_url,
+            anthropic_version=DEFAULT_ANTHROPIC_VERSION,
+        )
+        openai_model = _select_model_from_options(
+            provider_label="OpenAI",
+            options=tuple(available_models),
+            default=DEFAULT_OPENAI_MODEL if DEFAULT_OPENAI_MODEL in available_models else available_models[0],
+        )
 
-    class ConfigWalkthroughApp(App[WalkthroughAnswers | None]):
-        """Textual-driven configuration walkthrough."""
+    if "anthropic" in selected_providers:
+        anthropic_key = _prompt("Anthropic API key (optional if already exported)", "") or None
+        anthropic_base_url = _prompt("Anthropic base URL", DEFAULT_ANTHROPIC_BASE_URL)
+        anthropic_version = _prompt("Anthropic API version", DEFAULT_ANTHROPIC_VERSION)
+        available_models = _fetch_provider_models(
+            provider_name="anthropic",
+            api_key=anthropic_key or os.getenv("ANTHROPIC_API_KEY"),
+            base_url=anthropic_base_url,
+            anthropic_version=anthropic_version,
+        )
+        anthropic_model = _select_model_from_options(
+            provider_label="Anthropic",
+            options=tuple(available_models),
+            default=DEFAULT_ANTHROPIC_MODEL
+            if DEFAULT_ANTHROPIC_MODEL in available_models
+            else available_models[0],
+        )
 
-        CSS = """
-        Screen {
-            layout: vertical;
-        }
+    if "gemini" in selected_providers:
+        gemini_key = _prompt("Gemini API key (optional if already exported)", "") or None
+        gemini_base_url = _prompt("Gemini base URL", DEFAULT_GEMINI_BASE_URL)
+        available_models = _fetch_provider_models(
+            provider_name="gemini",
+            api_key=gemini_key or os.getenv("GEMINI_API_KEY"),
+            base_url=gemini_base_url,
+            anthropic_version=DEFAULT_ANTHROPIC_VERSION,
+        )
+        gemini_model = _select_model_from_options(
+            provider_label="Gemini",
+            options=tuple(available_models),
+            default=DEFAULT_GEMINI_MODEL if DEFAULT_GEMINI_MODEL in available_models else available_models[0],
+        )
 
-        #title {
-            padding: 0 1;
-        }
+    if "ollama" in selected_providers:
+        ollama_base_url = _prompt("Ollama base URL", DEFAULT_OLLAMA_BASE_URL)
+        ollama_key = _prompt("Ollama API key (optional)", "") or None
+        available_models = _fetch_provider_models(
+            provider_name="ollama",
+            api_key=ollama_key or os.getenv("OLLAMA_API_KEY"),
+            base_url=ollama_base_url,
+            anthropic_version=DEFAULT_ANTHROPIC_VERSION,
+        )
+        ollama_model = _select_model_from_options(
+            provider_label="Ollama",
+            options=tuple(available_models),
+            default=DEFAULT_OLLAMA_MODEL if DEFAULT_OLLAMA_MODEL in available_models else available_models[0],
+        )
 
-        #walkthrough-log {
-            height: 1fr;
-            border: solid $primary;
-            margin: 0 1;
-        }
-
-        #walkthrough-input {
-            margin: 0 1 1 1;
-        }
-        """
-
-        BINDINGS = [
-            Binding("ctrl+c", "cancel_walkthrough", "Cancel"),
-        ]
-
-        def __init__(self, *, env_path: Path) -> None:
-            super().__init__()
-            self.env_path = env_path
-            self._values: dict[str, str] = {
-                "profile": PROFILE_CHOICES[0][1],
-                "openai_api_key": "",
-                "anthropic_api_key": "",
-                "gemini_api_key": "",
-                "ollama_api_key": "",
-                "openai_base_url": DEFAULT_OPENAI_BASE_URL,
-                "anthropic_base_url": DEFAULT_ANTHROPIC_BASE_URL,
-                "anthropic_version": DEFAULT_ANTHROPIC_VERSION,
-                "gemini_base_url": DEFAULT_GEMINI_BASE_URL,
-                "openai_model": DEFAULT_OPENAI_MODEL,
-                "anthropic_model": DEFAULT_ANTHROPIC_MODEL,
-                "gemini_model": DEFAULT_GEMINI_MODEL,
-                "ollama_base_url": DEFAULT_OLLAMA_BASE_URL,
-                "ollama_model": DEFAULT_OLLAMA_MODEL,
-            }
-            self._steps: list[_PromptStep] = [
-                _PromptStep(
-                    kind="profile",
-                    field="profile",
-                    prompt="Select provider profile",
-                    default="1",
-                )
-            ]
-            self._step_index = 0
-
-        def compose(self) -> ComposeResult:
-            yield Header()
-            yield Static(f"Installer Walkthrough | Target env: {self.env_path}", id="title")
-            yield RichLog(id="walkthrough-log", wrap=True, highlight=False, markup=False)
-            yield Input(placeholder="Answer and press Enter", id="walkthrough-input")
-            yield Footer()
-
-        def on_mount(self) -> None:
-            self.query_one("#walkthrough-input", Input).focus()
-            self._write("Agent Installer Walkthrough")
-            self._write("This will update your local .env for provider and gateway settings.")
-            self._show_current_prompt()
-
-        def action_cancel_walkthrough(self) -> None:
-            self._write("Walkthrough canceled.")
-            self.exit(None)
-
-        def _write(self, message: str) -> None:
-            self.query_one("#walkthrough-log", RichLog).write(message)
-
-        def _current_step(self) -> _PromptStep:
-            return self._steps[self._step_index]
-
-        def _set_input_placeholder(self, text: str) -> None:
-            self.query_one("#walkthrough-input", Input).placeholder = text
-
-        def _show_current_prompt(self) -> None:
-            step = self._current_step()
-
-            if step.kind == "profile":
-                self._write("")
-                self._write("Select provider profile:")
-                for index, (label, _profile) in enumerate(PROFILE_CHOICES, start=1):
-                    suffix = " (default)" if index == 1 else ""
-                    self._write(f"{index}) {label}{suffix}")
-                self._write("Enter choice [1]:")
-                self._set_input_placeholder("1")
-                return
-
-            if step.kind == "model":
-                self._ensure_model_options(step)
-                options = step.options or ()
-                if options:
-                    default_index = options.index(step.default) + 1 if step.default in options else 1
-                    self._write("")
-                    self._write(f"{step.prompt}:")
-                    for index, model in enumerate(options, start=1):
-                        suffix = " (default)" if index == default_index else ""
-                        self._write(f"{index}) {model}{suffix}")
-                    self._write(f"Enter choice [{default_index}] or type model id:")
-                    self._set_input_placeholder(str(default_index))
-                    return
-
-            suffix = f" [{step.default}]" if step.default else ""
-            self._write("")
-            self._write(f"{step.prompt}{suffix}:")
-            self._set_input_placeholder(step.default or "")
-
-        def on_input_submitted(self, event: Input.Submitted) -> None:
-            raw_value = event.value.strip()
-            event.input.value = ""
-
-            step = self._current_step()
-
-            if step.kind == "profile":
-                profile = self._parse_profile(raw_value)
-                if profile is None:
-                    self._write(f"Invalid choice. Please enter 1-{len(PROFILE_CHOICES)}.")
-                    return
-
-                self._values["profile"] = profile
-                self._steps = [self._steps[0], *self._build_steps_for_profile(profile)]
-                self._advance()
-                return
-
-            if step.kind == "model":
-                selected_model = self._resolve_model_selection(step, raw_value)
-                if selected_model is None:
-                    return
-                self._values[step.field] = selected_model
-                self._advance()
-                return
-
-            self._values[step.field] = raw_value or step.default
-            self._advance()
-
-        def _advance(self) -> None:
-            self._step_index += 1
-            if self._step_index >= len(self._steps):
-                self._finish()
-                return
-            self._show_current_prompt()
-
-        def _parse_profile(self, raw_value: str) -> str | None:
-            if not raw_value:
-                return PROFILE_CHOICES[0][1]
-
-            normalized = raw_value.strip().lower()
-            if normalized in PROFILE_ORDERS:
-                return normalized
-
-            if not normalized.isdigit():
-                return None
-
-            index = int(normalized)
-            if 1 <= index <= len(PROFILE_CHOICES):
-                return PROFILE_CHOICES[index - 1][1]
-            return None
-
-        def _build_steps_for_profile(self, profile: str) -> list[_PromptStep]:
-            selected_providers = PROFILE_ORDERS[profile]
-            steps: list[_PromptStep] = []
-
-            if "openai" in selected_providers:
-                steps.extend(
-                    [
-                        _PromptStep(
-                            kind="text",
-                            field="openai_api_key",
-                            prompt="OpenAI API key (optional if already exported)",
-                        ),
-                        _PromptStep(
-                            kind="text",
-                            field="openai_base_url",
-                            prompt="OpenAI base URL",
-                            default=DEFAULT_OPENAI_BASE_URL,
-                        ),
-                        _PromptStep(
-                            kind="model",
-                            field="openai_model",
-                            prompt="Select OpenAI model",
-                            default=DEFAULT_OPENAI_MODEL,
-                            provider_name="openai",
-                            api_key_field="openai_api_key",
-                            base_url_field="openai_base_url",
-                        ),
-                    ]
-                )
-
-            if "anthropic" in selected_providers:
-                steps.extend(
-                    [
-                        _PromptStep(
-                            kind="text",
-                            field="anthropic_api_key",
-                            prompt="Anthropic API key (optional if already exported)",
-                        ),
-                        _PromptStep(
-                            kind="text",
-                            field="anthropic_base_url",
-                            prompt="Anthropic base URL",
-                            default=DEFAULT_ANTHROPIC_BASE_URL,
-                        ),
-                        _PromptStep(
-                            kind="text",
-                            field="anthropic_version",
-                            prompt="Anthropic API version",
-                            default=DEFAULT_ANTHROPIC_VERSION,
-                        ),
-                        _PromptStep(
-                            kind="model",
-                            field="anthropic_model",
-                            prompt="Select Anthropic model",
-                            default=DEFAULT_ANTHROPIC_MODEL,
-                            provider_name="anthropic",
-                            api_key_field="anthropic_api_key",
-                            base_url_field="anthropic_base_url",
-                        ),
-                    ]
-                )
-
-            if "gemini" in selected_providers:
-                steps.extend(
-                    [
-                        _PromptStep(
-                            kind="text",
-                            field="gemini_api_key",
-                            prompt="Gemini API key (optional if already exported)",
-                        ),
-                        _PromptStep(
-                            kind="text",
-                            field="gemini_base_url",
-                            prompt="Gemini base URL",
-                            default=DEFAULT_GEMINI_BASE_URL,
-                        ),
-                        _PromptStep(
-                            kind="model",
-                            field="gemini_model",
-                            prompt="Select Gemini model",
-                            default=DEFAULT_GEMINI_MODEL,
-                            provider_name="gemini",
-                            api_key_field="gemini_api_key",
-                            base_url_field="gemini_base_url",
-                        ),
-                    ]
-                )
-
-            if "ollama" in selected_providers:
-                steps.extend(
-                    [
-                        _PromptStep(
-                            kind="text",
-                            field="ollama_base_url",
-                            prompt="Ollama base URL",
-                            default=DEFAULT_OLLAMA_BASE_URL,
-                        ),
-                        _PromptStep(
-                            kind="text",
-                            field="ollama_api_key",
-                            prompt="Ollama API key (optional)",
-                        ),
-                        _PromptStep(
-                            kind="model",
-                            field="ollama_model",
-                            prompt="Select Ollama model",
-                            default=DEFAULT_OLLAMA_MODEL,
-                            provider_name="ollama",
-                            api_key_field="ollama_api_key",
-                            base_url_field="ollama_base_url",
-                        ),
-                    ]
-                )
-
-            return steps
-
-        def _ensure_model_options(self, step: _PromptStep) -> None:
-            if step.options is not None:
-                return
-
-            provider_name = step.provider_name or ""
-            key_field = step.api_key_field or ""
-            base_url_field = step.base_url_field or ""
-
-            entered_api_key = self._values.get(key_field, "").strip()
-            env_api_key = os.getenv(PROVIDER_API_KEY_ENV.get(provider_name, ""), "").strip()
-            api_key = entered_api_key or env_api_key or None
-            base_url = self._values.get(base_url_field, "").strip()
-            anthropic_version = self._values.get("anthropic_version", DEFAULT_ANTHROPIC_VERSION).strip()
-
-            try:
-                models = _fetch_provider_models(
-                    provider_name=provider_name,
-                    api_key=api_key,
-                    base_url=base_url,
-                    anthropic_version=anthropic_version,
-                )
-            except ProviderError as exc:
-                self._write(f"warning: {exc}")
-                self._write("Proceeding with manual model entry.")
-                step.options = ()
-                return
-
-            step.options = tuple(models)
-
-        def _resolve_model_selection(self, step: _PromptStep, raw_value: str) -> str | None:
-            options = step.options or ()
-            if not options:
-                return raw_value or step.default
-
-            default_index = options.index(step.default) + 1 if step.default in options else 1
-            if not raw_value:
-                return options[default_index - 1]
-
-            if raw_value.isdigit():
-                selected_index = int(raw_value)
-                if 1 <= selected_index <= len(options):
-                    return options[selected_index - 1]
-                self._write(f"Invalid model choice. Please enter 1-{len(options)} or type a model id.")
-                return None
-
-            return raw_value
-
-        def _empty_to_none(self, value: str) -> str | None:
-            normalized = value.strip()
-            return normalized or None
-
-        def _finish(self) -> None:
-            answers = WalkthroughAnswers(
-                profile=self._values["profile"],
-                openai_api_key=self._empty_to_none(self._values["openai_api_key"]),
-                anthropic_api_key=self._empty_to_none(self._values["anthropic_api_key"]),
-                gemini_api_key=self._empty_to_none(self._values["gemini_api_key"]),
-                ollama_api_key=self._empty_to_none(self._values["ollama_api_key"]),
-                openai_base_url=self._values["openai_base_url"],
-                anthropic_base_url=self._values["anthropic_base_url"],
-                anthropic_version=self._values["anthropic_version"],
-                gemini_base_url=self._values["gemini_base_url"],
-                openai_model=self._values["openai_model"],
-                anthropic_model=self._values["anthropic_model"],
-                gemini_model=self._values["gemini_model"],
-                ollama_base_url=self._values["ollama_base_url"],
-                ollama_model=self._values["ollama_model"],
-            )
-            self.exit(answers)
-
-else:
-
-    class ConfigWalkthroughApp:  # pragma: no cover - fallback only used when dependency missing.
-        def __init__(self, *, env_path: Path) -> None:
-            self.env_path = env_path
-
-        def run(self) -> WalkthroughAnswers | None:
-            _raise_textual_missing_for_config()
+    return WalkthroughAnswers(
+        profile=profile,
+        openai_api_key=openai_key,
+        anthropic_api_key=anthropic_key,
+        gemini_api_key=gemini_key,
+        ollama_api_key=ollama_key,
+        openai_base_url=openai_base_url,
+        anthropic_base_url=anthropic_base_url,
+        anthropic_version=anthropic_version,
+        gemini_base_url=gemini_base_url,
+        openai_model=openai_model,
+        anthropic_model=anthropic_model,
+        gemini_model=gemini_model,
+        ollama_base_url=ollama_base_url,
+        ollama_model=ollama_model,
+    )
 
 
 def run_walkthrough(env_path: Path) -> None:
-    app = ConfigWalkthroughApp(env_path=env_path)
-    answers = app.run()
-    if not isinstance(answers, WalkthroughAnswers):
-        raise RuntimeError("walkthrough cancelled before writing configuration")
+    print("\nAgent Installer Walkthrough")
+    print("===========================")
+    print("This will update your local .env for provider and gateway settings.\n")
 
+    answers = _collect_answers()
     updates = build_env_updates(answers)
 
     existing = env_path.read_text() if env_path.exists() else ""
