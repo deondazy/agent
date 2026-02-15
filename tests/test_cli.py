@@ -6,7 +6,7 @@ import re
 import time
 
 from denosysbot.adapters.models.base import ProviderError
-from denosysbot.cli import PROGRESS_PHRASES, main, run_tui
+from denosysbot.cli import PROGRESS_PHRASES, build_chat_prompt, main, run_tui
 
 ANSI_PATTERN = re.compile(r"\x1b\[[0-9;]*m")
 
@@ -214,6 +214,20 @@ def test_run_tui_default_phrase_interval_is_slow() -> None:
     signature = inspect.signature(run_tui)
     default_interval = signature.parameters["progress_phrase_interval_seconds"].default
     assert default_interval >= 3.0
+
+
+def test_build_chat_prompt_keeps_older_context_when_history_is_long() -> None:
+    history: list[tuple[str, str]] = [
+        ("user", "I am building a fintech app called BiyaLink."),
+        ("assistant", "Noted."),
+    ]
+    for idx in range(6):
+        history.append(("user", f"filler-user-{idx}"))
+        history.append(("assistant", f"filler-assistant-{idx}"))
+
+    prompt = build_chat_prompt(history, "Do you remember BiyaLink?")
+
+    assert "user: I am building a fintech app called BiyaLink." in prompt
 
 
 def test_run_tui_loads_persisted_history_into_prompt(tmp_path: Path) -> None:

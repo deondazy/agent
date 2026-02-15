@@ -71,12 +71,14 @@ def build_chat_prompt(history: list[tuple[str, str]], user_message: str) -> str:
     lines = [
         "You are DenosysBot, a concise coding assistant operating in a terminal.",
         "Respond with actionable answers.",
+        "Treat the provided conversation history as persistent memory across sessions.",
+        "If the user asks what you remember, use the history directly.",
         "",
     ]
 
     if history:
         lines.append("Conversation so far:")
-        for role, content in history[-10:]:
+        for role, content in history:
             lines.append(f"{role}: {content}")
         lines.append("")
 
