@@ -488,8 +488,8 @@ def run_tui(
                 if urls:
                     crawled_pages = crawl_docs_site(
                         urls[0],
-                        max_pages=16,
-                        max_depth=2,
+                        max_pages=48,
+                        max_depth=4,
                     )
                     reference_context, results = build_crawl_context(crawled_pages)
                 else:
