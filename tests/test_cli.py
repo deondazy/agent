@@ -668,3 +668,45 @@ def test_run_tui_natural_language_url_skill_request_uses_model_synthesis(
     assert "## Pitfalls & Notes" in skill_text
     assert "php artisan make:filament-user" in skill_text
     assert len(gateway.prompts) == 1
+
+
+def test_run_tui_natural_language_url_skill_request_reports_crawl_failure(
+    tmp_path: Path, monkeypatch
+) -> None:
+    import denosysbot.cli as cli_module
+
+    monkeypatch.setattr(
+        cli_module,
+        "crawl_docs_site",
+        lambda start_url, max_pages=16, max_depth=2, http_client=None: [],
+        raising=False,
+    )
+    monkeypatch.setattr(
+        cli_module,
+        "build_crawl_context",
+        lambda pages: ("", pages),
+        raising=False,
+    )
+
+    skills_dir = tmp_path / "skills"
+    monkeypatch.setenv("DENOSYSBOT_SKILLS_DIR", str(skills_dir))
+
+    inputs = iter(
+        [
+            "Go to https://filamentphp.com/docs/5.x/getting-started learn everything about filament v5 and create a skill for it",
+            "/exit",
+        ]
+    )
+    outputs: list[str] = []
+    gateway = FakeGateway(responses=["unused"])
+    history_path = tmp_path / "history.json"
+
+    code = run_tui(
+        gateway=gateway,
+        input_fn=lambda _prompt: next(inputs),
+        output_fn=outputs.append,
+        history_path=history_path,
+    )
+
+    assert code == 0
+    assert any("failed to crawl documentation pages" in line for line in outputs)

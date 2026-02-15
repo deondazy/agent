@@ -1,5 +1,6 @@
 import httpx
 
+import denosysbot.tools.web as web_module
 from denosysbot.tools.web import (
     crawl_docs_site,
     extract_urls,
@@ -75,3 +76,47 @@ def test_crawl_docs_site_follows_internal_doc_links_page_by_page() -> None:
     assert "https://filamentphp.com/docs/5.x/panels/installation" in urls
     assert "https://filamentphp.com/docs/5.x/forms/overview" in urls
     assert "https://filamentphp.com/docs/4.x/legacy" not in urls
+
+
+def test_crawl_docs_site_uses_playwright_when_http_fetch_fails(monkeypatch) -> None:
+    start = "https://filamentphp.com/docs/5.x/getting-started"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("dns failure", request=request)
+
+    monkeypatch.setattr(
+        web_module,
+        "_render_with_playwright",
+        lambda _url: (
+            "<html><head><title>Rendered page</title></head>"
+            "<body><h1>Getting Started</h1><p>Rendered via browser fallback.</p></body></html>"
+        ),
+        raising=True,
+    )
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    crawled = crawl_docs_site(start, max_pages=5, max_depth=1, http_client=client)
+
+    assert len(crawled) == 1
+    assert crawled[0].title == "Rendered page"
+    assert crawled[0].url == start
+
+
+def test_crawl_docs_site_accepts_html_body_with_non_html_content_type() -> None:
+    start = "https://filamentphp.com/docs/5.x/getting-started"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            text=(
+                "<html><head><title>Getting Started</title></head>"
+                "<body><h1>Intro</h1><p>Docs page body.</p></body></html>"
+            ),
+            headers={"content-type": "text/plain"},
+        )
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    crawled = crawl_docs_site(start, max_pages=5, max_depth=1, http_client=client)
+
+    assert len(crawled) == 1
+    assert crawled[0].title == "Getting Started"

@@ -499,7 +499,13 @@ def run_tui(
                 continue
 
             if not results or not reference_context.strip():
-                output_fn("denosysbot> web: no usable references found for skill creation.")
+                if urls:
+                    output_fn(
+                        "denosysbot> web: failed to crawl documentation pages from "
+                        f"{urls[0]}. Check network access and retry."
+                    )
+                else:
+                    output_fn("denosysbot> web: no usable references found for skill creation.")
                 continue
 
             if urls:

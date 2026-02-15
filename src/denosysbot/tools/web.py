@@ -5,6 +5,7 @@ from html import unescape
 from collections import deque
 from urllib.parse import parse_qs, unquote, urldefrag, urljoin, urlparse, urlunparse
 import re
+import time
 
 import httpx
 
@@ -212,7 +213,12 @@ def crawl_docs_site(
         if not html:
             continue
 
-        if "text/html" not in content_type and "application/xhtml+xml" not in content_type:
+        normalized_html = html.lower()
+        if (
+            "text/html" not in content_type
+            and "application/xhtml+xml" not in content_type
+            and "<html" not in normalized_html
+        ):
             continue
 
         title = _extract_html_title(html) or urlparse(current_url).path.strip("/") or current_url
@@ -342,10 +348,29 @@ def _fetch_page_html(
     *,
     http_client: httpx.Client,
 ) -> tuple[str, str]:
-    try:
-        response = http_client.get(url, headers={"User-Agent": "denosysbot/0.1 (+https://example.local)"})
-        response.raise_for_status()
-    except httpx.HTTPError:
+    response: httpx.Response | None = None
+    user_agents = (
+        "denosysbot/0.1 (+https://example.local)",
+        (
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/124.0.0.0 Safari/537.36"
+        ),
+    )
+    for attempt, user_agent in enumerate(user_agents, start=1):
+        try:
+            response = http_client.get(url, headers={"User-Agent": user_agent})
+            response.raise_for_status()
+            break
+        except httpx.HTTPError:
+            response = None
+            if attempt < len(user_agents):
+                time.sleep(0.25)
+
+    if response is None:
+        rendered = _render_with_playwright(url)
+        if rendered:
+            return rendered, "text/html"
         return "", ""
 
     content_type = response.headers.get("content-type", "")
