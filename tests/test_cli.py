@@ -92,7 +92,9 @@ def test_run_tui_generates_response_and_exits() -> None:
     assert any("DenoSysBot TUI" in line for line in outputs)
     assert any("terminal AI assistant" in line for line in outputs)
     assert any("Commands: /help, /reset, /exit" in line for line in outputs)
+    assert any("denosysbot> thinking..." in line for line in outputs)
     assert any("denosysbot> hi there" in line for line in outputs)
+    assert outputs.index("denosysbot> thinking...") < outputs.index("denosysbot> hi there")
     assert prompts[0] == ""
     assert len(gateway.prompts) == 1
 

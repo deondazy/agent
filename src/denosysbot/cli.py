@@ -96,6 +96,7 @@ def run_tui(
             continue
 
         prompt = build_chat_prompt(history, user_message)
+        output_fn("denosysbot> thinking...")
 
         try:
             response = gateway.generate(prompt)
