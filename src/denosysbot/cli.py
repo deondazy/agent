@@ -3,6 +3,7 @@
 from collections.abc import Callable, Sequence
 from pathlib import Path
 import argparse
+import json
 import math
 import os
 import threading
@@ -42,6 +43,8 @@ ELLIPSIS_FRAMES: tuple[str, ...] = (".", "..", "...")
 BOT_NAME = "DenoSysBot"
 ANSI_BOLD = "\033[1m"
 ANSI_RESET = "\033[0m"
+DEFAULT_HISTORY_PATH = Path.home() / ".denosysbot" / "history.json"
+HISTORY_PATH_ENV_VAR = "DENOSYSBOT_CHAT_HISTORY_PATH"
 
 
 def load_env_file(path: Path = Path(".env")) -> None:
@@ -82,6 +85,59 @@ def build_chat_prompt(history: list[tuple[str, str]], user_message: str) -> str:
     return "\n".join(lines)
 
 
+def resolve_history_path(path: Path | None = None) -> Path:
+    """Resolve chat history path from explicit value, env, or default location."""
+
+    if path is not None:
+        return path
+
+    configured = os.getenv(HISTORY_PATH_ENV_VAR)
+    if configured:
+        return Path(configured).expanduser()
+
+    return DEFAULT_HISTORY_PATH
+
+
+def load_chat_history(path: Path) -> list[tuple[str, str]]:
+    """Read persisted chat history, returning only valid role/content pairs."""
+
+    if not path.exists():
+        return []
+
+    try:
+        payload = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError):
+        return []
+
+    if not isinstance(payload, list):
+        return []
+
+    history: list[tuple[str, str]] = []
+    for item in payload:
+        if isinstance(item, dict):
+            role = item.get("role")
+            content = item.get("content")
+            if isinstance(role, str) and isinstance(content, str):
+                history.append((role, content))
+        elif isinstance(item, list | tuple) and len(item) == 2:
+            role, content = item
+            if isinstance(role, str) and isinstance(content, str):
+                history.append((role, content))
+
+    return history
+
+
+def persist_chat_history(path: Path, history: list[tuple[str, str]]) -> None:
+    """Write chat history to disk, ignoring persistence errors."""
+
+    payload = [{"role": role, "content": content} for role, content in history]
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f"{json.dumps(payload, ensure_ascii=True, indent=2)}\n")
+    except OSError:
+        return
+
+
 def run_tui(
     *,
     gateway=None,
@@ -90,6 +146,7 @@ def run_tui(
     progress_interval_seconds: float = 0.35,
     progress_phrase_interval_seconds: float = 4.2,
     inplace_progress: bool | None = None,
+    history_path: Path | None = None,
 ) -> int:
     """Run interactive terminal chat loop."""
 
@@ -102,7 +159,8 @@ def run_tui(
     output_fn("DenoSysBot is your terminal AI assistant.")
     output_fn("Commands: /help, /reset, /exit")
 
-    history: list[tuple[str, str]] = []
+    resolved_history_path = resolve_history_path(history_path)
+    history = load_chat_history(resolved_history_path)
     progress_phrase_index = 0
     progress_interval_seconds = max(progress_interval_seconds, 0.01)
     progress_phrase_interval_seconds = max(
@@ -135,6 +193,7 @@ def run_tui(
 
         if lowered == "/reset":
             history.clear()
+            persist_chat_history(resolved_history_path, history)
             output_fn("Conversation reset.")
             continue
 
@@ -204,6 +263,7 @@ def run_tui(
         output_fn(response)
         history.append(("user", user_message))
         history.append(("assistant", response))
+        persist_chat_history(resolved_history_path, history)
 
 
 def build_parser() -> argparse.ArgumentParser:

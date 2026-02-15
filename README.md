@@ -103,8 +103,12 @@ denosysbot tui
 Commands inside TUI:
 
 - `/help` show commands
-- `/reset` clear conversation context
+- `/reset` clear conversation context (including persisted history)
 - `/exit` quit
+
+Chat history is now persisted between `denosysbot tui` sessions by default at
+`~/.denosysbot/history.json`. Override this path with
+`DENOSYSBOT_CHAT_HISTORY_PATH`.
 
 ## Model providers
 

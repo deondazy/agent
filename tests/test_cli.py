@@ -1,5 +1,6 @@
 from collections import deque
 import inspect
+import json
 from pathlib import Path
 import re
 import time
@@ -94,11 +95,12 @@ def test_main_without_subcommand_shows_help(capsys) -> None:
     assert "usage:" in captured.out
 
 
-def test_run_tui_generates_response_and_exits() -> None:
+def test_run_tui_generates_response_and_exits(tmp_path: Path) -> None:
     inputs = iter(["hello", "/exit"])
     outputs: list[str] = []
     prompts: list[str] = []
     gateway = FakeGateway(responses=["hi there"])
+    history_path = tmp_path / "history.json"
 
     def fake_input(prompt: str) -> str:
         prompts.append(prompt)
@@ -108,6 +110,7 @@ def test_run_tui_generates_response_and_exits() -> None:
         gateway=gateway,
         input_fn=fake_input,
         output_fn=outputs.append,
+        history_path=history_path,
     )
 
     assert code == 0
@@ -128,30 +131,34 @@ def test_run_tui_generates_response_and_exits() -> None:
     assert len(gateway.prompts) == 1
 
 
-def test_run_tui_handles_provider_error_and_continues() -> None:
+def test_run_tui_handles_provider_error_and_continues(tmp_path: Path) -> None:
     inputs = iter(["hello", "/exit"])
     outputs: list[str] = []
     gateway = FakeGateway(raise_error=True)
+    history_path = tmp_path / "history.json"
 
     code = run_tui(
         gateway=gateway,
         input_fn=lambda _prompt: next(inputs),
         output_fn=outputs.append,
+        history_path=history_path,
     )
 
     assert code == 0
     assert any("error:" in line for line in outputs)
 
 
-def test_run_tui_progress_phrase_changes_between_submissions() -> None:
+def test_run_tui_progress_phrase_changes_between_submissions(tmp_path: Path) -> None:
     inputs = iter(["hello", "again", "/exit"])
     outputs: list[str] = []
     gateway = FakeGateway(responses=["first reply", "second reply"])
+    history_path = tmp_path / "history.json"
 
     code = run_tui(
         gateway=gateway,
         input_fn=lambda _prompt: next(inputs),
         output_fn=outputs.append,
+        history_path=history_path,
     )
 
     progress_lines = [
@@ -167,10 +174,11 @@ def test_run_tui_progress_phrase_changes_between_submissions() -> None:
     assert progress_lines[0] != progress_lines[1]
 
 
-def test_run_tui_animates_ellipsis_while_waiting_for_response() -> None:
+def test_run_tui_animates_ellipsis_while_waiting_for_response(tmp_path: Path) -> None:
     inputs = iter(["hello", "/exit"])
     outputs: list[str] = []
     gateway = SlowGateway(delay_seconds=0.06, responses=["hi"])
+    history_path = tmp_path / "history.json"
 
     code = run_tui(
         gateway=gateway,
@@ -178,6 +186,7 @@ def test_run_tui_animates_ellipsis_while_waiting_for_response() -> None:
         output_fn=outputs.append,
         progress_interval_seconds=0.01,
         progress_phrase_interval_seconds=0.25,
+        history_path=history_path,
     )
 
     progress_lines = [
@@ -205,3 +214,79 @@ def test_run_tui_default_phrase_interval_is_slow() -> None:
     signature = inspect.signature(run_tui)
     default_interval = signature.parameters["progress_phrase_interval_seconds"].default
     assert default_interval >= 3.0
+
+
+def test_run_tui_loads_persisted_history_into_prompt(tmp_path: Path) -> None:
+    history_path = tmp_path / "history.json"
+    history_path.write_text(
+        json.dumps(
+            [
+                {"role": "user", "content": "previous question"},
+                {"role": "assistant", "content": "previous answer"},
+            ]
+        )
+    )
+    inputs = iter(["new question", "/exit"])
+    gateway = FakeGateway(responses=["new answer"])
+    outputs: list[str] = []
+
+    code = run_tui(
+        gateway=gateway,
+        input_fn=lambda _prompt: next(inputs),
+        output_fn=outputs.append,
+        history_path=history_path,
+    )
+
+    assert code == 0
+    assert len(gateway.prompts) == 1
+    prompt = gateway.prompts[0]
+    assert "user: previous question" in prompt
+    assert "assistant: previous answer" in prompt
+    assert "user: new question" in prompt
+
+
+def test_run_tui_persists_history_after_response(tmp_path: Path) -> None:
+    history_path = tmp_path / "history.json"
+    inputs = iter(["hello", "/exit"])
+    gateway = FakeGateway(responses=["hi there"])
+    outputs: list[str] = []
+
+    code = run_tui(
+        gateway=gateway,
+        input_fn=lambda _prompt: next(inputs),
+        output_fn=outputs.append,
+        history_path=history_path,
+    )
+
+    assert code == 0
+    persisted = json.loads(history_path.read_text())
+    assert persisted == [
+        {"role": "user", "content": "hello"},
+        {"role": "assistant", "content": "hi there"},
+    ]
+
+
+def test_run_tui_reset_clears_persisted_history(tmp_path: Path) -> None:
+    history_path = tmp_path / "history.json"
+    history_path.write_text(
+        json.dumps(
+            [
+                {"role": "user", "content": "stale question"},
+                {"role": "assistant", "content": "stale answer"},
+            ]
+        )
+    )
+    inputs = iter(["/reset", "/exit"])
+    gateway = FakeGateway(responses=["unused"])
+    outputs: list[str] = []
+
+    code = run_tui(
+        gateway=gateway,
+        input_fn=lambda _prompt: next(inputs),
+        output_fn=outputs.append,
+        history_path=history_path,
+    )
+
+    assert code == 0
+    assert "Conversation reset." in outputs
+    assert json.loads(history_path.read_text()) == []
