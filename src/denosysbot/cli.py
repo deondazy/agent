@@ -3,6 +3,7 @@
 from collections.abc import Callable, Sequence
 from pathlib import Path
 from datetime import datetime
+from urllib.parse import urlparse
 import argparse
 import json
 import math
@@ -22,7 +23,7 @@ from denosysbot.skills.engine import (
     render_skill_context,
     update_skill_file,
 )
-from denosysbot.tools.web import build_web_context
+from denosysbot.tools.web import build_url_context, build_web_context, extract_urls
 
 InputFn = Callable[[str], str]
 OutputFn = Callable[[str], None]
@@ -70,6 +71,12 @@ AUTO_WEB_BROWSE_HINTS: tuple[str, ...] = (
     "price",
 )
 WORD_PATTERN = re.compile(r"[a-z0-9][a-z0-9_-]{1,}")
+SKILL_CREATE_HINTS: tuple[str, ...] = (
+    "create a skill",
+    "make a skill",
+    "build a skill",
+    "create skill",
+)
 
 
 def load_env_file(path: Path = Path(".env")) -> None:
@@ -246,6 +253,45 @@ def _should_auto_browse_web(user_message: str) -> bool:
     return any(hint in lowered for hint in AUTO_WEB_BROWSE_HINTS)
 
 
+def _contains_skill_create_request(user_message: str) -> bool:
+    lowered = user_message.lower()
+    return any(hint in lowered for hint in SKILL_CREATE_HINTS)
+
+
+def _suggest_skill_name(user_message: str, urls: tuple[str, ...]) -> str:
+    for url in urls:
+        parsed = urlparse(url)
+        parts = [part for part in parsed.path.split("/") if part]
+        lowered_parts = [part.lower() for part in parts]
+        if parsed.netloc.endswith("filamentphp.com") and "5.x" in lowered_parts:
+            return "filament-v5"
+        if lowered_parts:
+            candidate = lowered_parts[-1].replace(".", "-")
+            candidate = re.sub(r"[^a-z0-9-]+", "-", candidate).strip("-")
+            if candidate:
+                return candidate
+
+    keywords = [token for token in WORD_PATTERN.findall(user_message.lower()) if token not in {"skill", "create"}]
+    if not keywords:
+        return "learned-skill"
+    return "-".join(keywords[:3])
+
+
+def _build_learned_skill_body(reference_context: str) -> str:
+    lines = [
+        "# Workflow",
+        "",
+        "1. Review listed references before acting.",
+        "2. Use reference facts instead of assumptions.",
+        "3. Verify final output against source details.",
+        "",
+        "## Learned References",
+        "",
+        reference_context.strip(),
+    ]
+    return "\n".join(lines)
+
+
 def run_tui(
     *,
     gateway=None,
@@ -410,6 +456,33 @@ def run_tui(
                 excerpt = getattr(result, "excerpt", "")
                 if isinstance(excerpt, str) and excerpt:
                     output_fn(f"   {excerpt}")
+            continue
+
+        if _contains_skill_create_request(user_message):
+            urls = extract_urls(user_message)
+            skill_name = _suggest_skill_name(user_message, urls)
+            try:
+                if urls:
+                    reference_context, results = build_url_context(urls, max_excerpt_chars=2200)
+                else:
+                    reference_context, results = build_web_context(user_message, max_results=3)
+            except Exception as exc:  # pragma: no cover - network/runtime variability.
+                output_fn(f"denosysbot> web error: {exc}")
+                continue
+
+            if not results or not reference_context.strip():
+                output_fn("denosysbot> web: no usable references found for skill creation.")
+                continue
+
+            created = create_skill_file(
+                skills_dir=resolved_skills_path,
+                name=skill_name,
+                description=f"Learned guidance for {skill_name.replace('-', ' ')}",
+                triggers=_extract_keywords(skill_name.replace("-", " ")),
+                body=_build_learned_skill_body(reference_context),
+            )
+            output_fn(f"Created skill: {created}")
+            output_fn(f"Learned from {len(results)} source(s).")
             continue
 
         context_blocks: list[str] = []

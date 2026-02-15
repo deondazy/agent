@@ -1,4 +1,4 @@
-from denosysbot.tools.web import normalize_duckduckgo_result_url, parse_duckduckgo_results
+from denosysbot.tools.web import extract_urls, normalize_duckduckgo_result_url, parse_duckduckgo_results
 
 
 def test_normalize_duckduckgo_redirect_url_extracts_target() -> None:
@@ -23,3 +23,14 @@ def test_parse_duckduckgo_results_extracts_title_and_url() -> None:
     assert parsed[0].url == "https://example.com/docs"
     assert parsed[1].title == "Blog Post"
     assert parsed[1].url == "https://example.org/blog"
+
+
+def test_extract_urls_returns_http_and_https_links() -> None:
+    text = "Go to https://filamentphp.com/docs/5.x/getting-started and also http://example.org/page."
+
+    urls = extract_urls(text)
+
+    assert urls == (
+        "https://filamentphp.com/docs/5.x/getting-started",
+        "http://example.org/page",
+    )

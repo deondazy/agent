@@ -7,6 +7,7 @@ import re
 
 import httpx
 
+URL_PATTERN = re.compile(r"https?://[^\s)>\]\"']+")
 RESULT_ANCHOR_PATTERN = re.compile(
     r'<a[^>]*class="[^"]*result__a[^"]*"[^>]*href="([^"]+)"[^>]*>(.*?)</a>',
     flags=re.IGNORECASE | re.DOTALL,
@@ -21,6 +22,17 @@ class WebSearchResult:
     title: str
     url: str
     excerpt: str = ""
+
+
+def extract_urls(text: str) -> tuple[str, ...]:
+    """Extract HTTP(S) URLs from free-form user text."""
+
+    discovered: list[str] = []
+    for raw in URL_PATTERN.findall(text):
+        cleaned = raw.rstrip(".,;:!?")
+        if cleaned and cleaned not in discovered:
+            discovered.append(cleaned)
+    return tuple(discovered)
 
 
 def normalize_duckduckgo_result_url(raw_url: str) -> str:
@@ -108,6 +120,35 @@ def build_web_context(
         if result.excerpt:
             lines.append(f"   Excerpt: {result.excerpt}")
     return "\n".join(lines), enriched
+
+
+def build_url_context(
+    urls: tuple[str, ...],
+    *,
+    max_excerpt_chars: int = 2200,
+    http_client: httpx.Client | None = None,
+) -> tuple[str, list[WebSearchResult]]:
+    """Build context from explicit URLs instead of search queries."""
+
+    unique_urls: list[str] = []
+    for url in urls:
+        cleaned = url.strip()
+        if cleaned and cleaned not in unique_urls:
+            unique_urls.append(cleaned)
+
+    if not unique_urls:
+        return "", []
+
+    results: list[WebSearchResult] = []
+    lines = ["Live URL references:"]
+    for index, url in enumerate(unique_urls, start=1):
+        excerpt = fetch_web_excerpt(url, max_chars=max_excerpt_chars, http_client=http_client)
+        result = WebSearchResult(title=urlparse(url).netloc or "source", url=url, excerpt=excerpt)
+        results.append(result)
+        lines.append(f"{index}. {url}")
+        if excerpt:
+            lines.append(f"   Excerpt: {excerpt}")
+    return "\n".join(lines), results
 
 
 def fetch_web_excerpt(
