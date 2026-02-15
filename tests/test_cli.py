@@ -1,5 +1,6 @@
 from collections import deque
 from pathlib import Path
+import time
 
 from denosysbot.adapters.models.base import ProviderError
 from denosysbot.cli import main, run_tui
@@ -15,6 +16,19 @@ class FakeGateway:
         self.prompts.append(prompt)
         if self.raise_error:
             raise ProviderError("provider boom")
+        if self.responses:
+            return self.responses.popleft()
+        return "default-response"
+
+
+class SlowGateway(FakeGateway):
+    def __init__(self, *, delay_seconds: float, responses: list[str] | None = None):
+        super().__init__(responses=responses)
+        self.delay_seconds = delay_seconds
+
+    def generate(self, prompt: str, **kwargs: str) -> str:
+        self.prompts.append(prompt)
+        time.sleep(self.delay_seconds)
         if self.responses:
             return self.responses.popleft()
         return "default-response"
@@ -92,9 +106,12 @@ def test_run_tui_generates_response_and_exits() -> None:
     assert any("DenoSysBot TUI" in line for line in outputs)
     assert any("terminal AI assistant" in line for line in outputs)
     assert any("Commands: /help, /reset, /exit" in line for line in outputs)
-    assert any("denosysbot> thinking..." in line for line in outputs)
+    assert any(line.startswith("denosysbot> thinking") for line in outputs)
     assert any("denosysbot> hi there" in line for line in outputs)
-    assert outputs.index("denosysbot> thinking...") < outputs.index("denosysbot> hi there")
+    first_progress_index = next(
+        idx for idx, line in enumerate(outputs) if line.startswith("denosysbot> thinking")
+    )
+    assert first_progress_index < outputs.index("denosysbot> hi there")
     assert prompts[0] == ""
     assert len(gateway.prompts) == 1
 
@@ -112,3 +129,56 @@ def test_run_tui_handles_provider_error_and_continues() -> None:
 
     assert code == 0
     assert any("error:" in line for line in outputs)
+
+
+def test_run_tui_progress_phrase_changes_between_submissions() -> None:
+    inputs = iter(["hello", "again", "/exit"])
+    outputs: list[str] = []
+    gateway = FakeGateway(responses=["first reply", "second reply"])
+
+    code = run_tui(
+        gateway=gateway,
+        input_fn=lambda _prompt: next(inputs),
+        output_fn=outputs.append,
+    )
+
+    progress_lines = [
+        line
+        for line in outputs
+        if line.startswith("denosysbot> ")
+        and line not in {"denosysbot> first reply", "denosysbot> second reply"}
+        and "error:" not in line
+    ]
+
+    assert code == 0
+    assert len(progress_lines) == 2
+    assert progress_lines[0] != progress_lines[1]
+
+
+def test_run_tui_animates_ellipsis_while_waiting_for_response() -> None:
+    inputs = iter(["hello", "/exit"])
+    outputs: list[str] = []
+    gateway = SlowGateway(delay_seconds=0.06, responses=["hi"])
+
+    code = run_tui(
+        gateway=gateway,
+        input_fn=lambda _prompt: next(inputs),
+        output_fn=outputs.append,
+        progress_interval_seconds=0.01,
+    )
+
+    progress_lines = [
+        line
+        for line in outputs
+        if line.startswith("denosysbot> ")
+        and line != "denosysbot> hi"
+        and "error:" not in line
+    ]
+    payloads = [line.removeprefix("denosysbot> ") for line in progress_lines]
+    phrases = [payload.rstrip(".") for payload in payloads]
+    ellipsis_suffixes = [payload[len(payload.rstrip(".")) :] for payload in payloads]
+
+    assert code == 0
+    assert len(progress_lines) >= 2
+    assert len(set(phrases)) >= 2
+    assert len(set(ellipsis_suffixes)) >= 2

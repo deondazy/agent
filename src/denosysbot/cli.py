@@ -4,6 +4,8 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 import argparse
 import os
+import threading
+import sys
 
 from denosysbot.adapters.models.base import ProviderError
 from denosysbot.adapters.models.factory import build_model_gateway
@@ -12,6 +14,14 @@ from denosysbot.installer import run_walkthrough
 
 InputFn = Callable[[str], str]
 OutputFn = Callable[[str], None]
+
+PROGRESS_PHRASES: tuple[str, ...] = (
+    "thinking",
+    "working through it",
+    "drafting a response",
+    "checking options",
+)
+ELLIPSIS_FRAMES: tuple[str, ...] = (".", "..", "...")
 
 
 def load_env_file(path: Path = Path(".env")) -> None:
@@ -57,6 +67,8 @@ def run_tui(
     gateway=None,
     input_fn: InputFn = input,
     output_fn: OutputFn = print,
+    progress_interval_seconds: float = 0.35,
+    inplace_progress: bool | None = None,
 ) -> int:
     """Run interactive terminal chat loop."""
 
@@ -70,6 +82,9 @@ def run_tui(
     output_fn("Commands: /help, /reset, /exit")
 
     history: list[tuple[str, str]] = []
+    progress_phrase_index = 0
+    progress_interval_seconds = max(progress_interval_seconds, 0.01)
+    use_inplace_progress = output_fn is print if inplace_progress is None else inplace_progress
 
     while True:
         try:
@@ -96,12 +111,62 @@ def run_tui(
             continue
 
         prompt = build_chat_prompt(history, user_message)
-        output_fn("denosysbot> thinking...")
+        stop_progress = threading.Event()
+        progress_line_length = 0
+        progress_line_lock = threading.Lock()
 
+        def _progress_message(step: int) -> str:
+            phrase = PROGRESS_PHRASES[(progress_phrase_index + step) % len(PROGRESS_PHRASES)]
+            ellipsis = ELLIPSIS_FRAMES[step % len(ELLIPSIS_FRAMES)]
+            return f"denosysbot> {phrase}{ellipsis}"
+
+        def _emit_progress(message: str) -> None:
+            nonlocal progress_line_length
+            if use_inplace_progress:
+                with progress_line_lock:
+                    padded = message.ljust(progress_line_length)
+                    sys.stdout.write(f"\r{padded}")
+                    sys.stdout.flush()
+                    progress_line_length = max(progress_line_length, len(message))
+                return
+            output_fn(message)
+
+        def _clear_progress_line() -> None:
+            nonlocal progress_line_length
+            if not use_inplace_progress:
+                return
+            with progress_line_lock:
+                if progress_line_length == 0:
+                    return
+                sys.stdout.write(f"\r{' ' * progress_line_length}\r")
+                sys.stdout.flush()
+                progress_line_length = 0
+
+        _emit_progress(_progress_message(0))
+
+        def _emit_progress_updates() -> None:
+            step = 1
+            while not stop_progress.wait(progress_interval_seconds):
+                _emit_progress(_progress_message(step))
+                step += 1
+
+        progress_thread = threading.Thread(target=_emit_progress_updates, daemon=True)
+        progress_thread.start()
+        response: str | None = None
+        provider_error: ProviderError | None = None
         try:
             response = gateway.generate(prompt)
         except ProviderError as exc:
-            output_fn(f"denosysbot> error: {exc}")
+            provider_error = exc
+        finally:
+            stop_progress.set()
+            progress_thread.join()
+            _clear_progress_line()
+
+        progress_phrase_index = (progress_phrase_index + 1) % len(PROGRESS_PHRASES)
+
+        if provider_error is not None:
+            output_fn(f"denosysbot> error: {provider_error}")
             continue
 
         output_fn(f"denosysbot> {response}")
