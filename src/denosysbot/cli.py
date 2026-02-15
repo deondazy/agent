@@ -68,6 +68,7 @@ def run_tui(
     input_fn: InputFn = input,
     output_fn: OutputFn = print,
     progress_interval_seconds: float = 0.35,
+    progress_phrase_interval_seconds: float = 1.4,
     inplace_progress: bool | None = None,
 ) -> int:
     """Run interactive terminal chat loop."""
@@ -84,6 +85,13 @@ def run_tui(
     history: list[tuple[str, str]] = []
     progress_phrase_index = 0
     progress_interval_seconds = max(progress_interval_seconds, 0.01)
+    progress_phrase_interval_seconds = max(
+        progress_phrase_interval_seconds, progress_interval_seconds
+    )
+    phrase_hold_ticks = max(
+        1,
+        round(progress_phrase_interval_seconds / progress_interval_seconds),
+    )
     use_inplace_progress = output_fn is print if inplace_progress is None else inplace_progress
 
     while True:
@@ -116,7 +124,10 @@ def run_tui(
         progress_line_lock = threading.Lock()
 
         def _progress_message(step: int) -> str:
-            phrase = PROGRESS_PHRASES[(progress_phrase_index + step) % len(PROGRESS_PHRASES)]
+            phrase_offset = step // phrase_hold_ticks
+            phrase = PROGRESS_PHRASES[
+                (progress_phrase_index + phrase_offset) % len(PROGRESS_PHRASES)
+            ]
             ellipsis = ELLIPSIS_FRAMES[step % len(ELLIPSIS_FRAMES)]
             return f"denosysbot> {phrase}{ellipsis}"
 

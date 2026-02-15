@@ -165,6 +165,7 @@ def test_run_tui_animates_ellipsis_while_waiting_for_response() -> None:
         input_fn=lambda _prompt: next(inputs),
         output_fn=outputs.append,
         progress_interval_seconds=0.01,
+        progress_phrase_interval_seconds=0.25,
     )
 
     progress_lines = [
@@ -180,5 +181,5 @@ def test_run_tui_animates_ellipsis_while_waiting_for_response() -> None:
 
     assert code == 0
     assert len(progress_lines) >= 2
-    assert len(set(phrases)) >= 2
+    assert len(set(phrases)) == 1
     assert len(set(ellipsis_suffixes)) >= 2
