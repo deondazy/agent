@@ -9,11 +9,17 @@ from denosysbot.skills.engine import (
     render_skill_context,
     update_skill_file,
 )
-from denosysbot.skills.generator import SkillDraft, build_skill_draft, build_skill_markdown
+from denosysbot.skills.generator import (
+    SkillDraft,
+    SkillSynthesisError,
+    build_skill_draft,
+    build_skill_markdown,
+)
 
 __all__ = [
     "SkillDefinition",
     "SkillDraft",
+    "SkillSynthesisError",
     "build_skill_draft",
     "build_skill_markdown",
     "create_skill_folder",

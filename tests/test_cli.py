@@ -7,6 +7,7 @@ import time
 from types import SimpleNamespace
 
 from denosysbot.adapters.models.base import ProviderError
+from denosysbot.skills.generator import SkillSynthesisError
 from denosysbot.cli import PROGRESS_PHRASES, build_chat_prompt, main, run_tui
 
 ANSI_PATTERN = re.compile(r"\x1b\[[0-9;]*m")
@@ -554,7 +555,29 @@ def test_run_tui_natural_language_url_skill_request_creates_skill(
         ]
     )
     outputs: list[str] = []
-    gateway = FakeGateway(responses=["unused"])
+    gateway = FakeGateway(
+        responses=[
+            (
+                "{"
+                '"description":"Filament v5 docs synthesis.",'
+                '"triggers":["filament","resources"],'
+                '"core_concepts":["Filament v5 provides admin panel scaffolding.","Resources map Eloquent models to CRUD workflows.","Panel providers configure authentication and navigation.","Tables and forms drive resource UX."],'
+                '"installation_commands":["composer require filament/filament:\\"^5.0\\"","php artisan filament:install --panels"],'
+                '"common_commands":["php artisan make:filament-user","php artisan make:filament-resource Customer --generate"],'
+                '"resources":["Resources are static classes for CRUD interfaces.","Generate resources with artisan commands."],'
+                '"forms":["Build form schemas with field components.","Use validation rules directly in schema definitions."],'
+                '"tables":["Use sortable/searchable columns.","Apply filters and bulk actions to tables."],'
+                '"actions":["Use actions for modal-based operations.","Require confirmation for destructive actions."],'
+                '"panel_configuration":["Set panel path and auth in panel provider.","Discover resources and pages automatically."],'
+                '"testing":["Test resource flows with Livewire/Pest."],'
+                '"upgrade_notes":["Check deprecated namespaces during upgrades."],'
+                '"best_practices":["Split schemas and tables into separate classes."],'
+                '"pitfalls":["Avoid mixed v4 and v5 namespace imports."],'
+                '"page_highlights":[{"page":"Getting Started","url":"https://filamentphp.com/docs/5.x/getting-started","highlight":"Filament installation starts with composer require and panel setup commands."}]'
+                "}"
+            )
+        ]
+    )
     history_path = tmp_path / "history.json"
 
     code = run_tui(
@@ -570,10 +593,9 @@ def test_run_tui_natural_language_url_skill_request_creates_skill(
     skill_text = created_files[0].read_text()
     assert "## Documentation" in skill_text
     assert "## Core Concepts" in skill_text
-    assert "Filament v5 documentation excerpt" in skill_text
     assert "https://filamentphp.com/docs/5.x/getting-started" in skill_text
     assert any("Created skill:" in line for line in outputs)
-    assert gateway.prompts == []
+    assert len(gateway.prompts) == 1
 
 
 def test_run_tui_natural_language_url_skill_request_uses_model_synthesis(
@@ -634,9 +656,16 @@ def test_run_tui_natural_language_url_skill_request_uses_model_synthesis(
         "{"
         '"description":"FilamentPHP v5 setup, resources, and table workflows from official docs.",'
         '"triggers":["filament","resources","tables"],'
-        '"core_concepts":["Resources define CRUD interfaces.","Panel providers register auth and navigation."],'
+        '"core_concepts":["Resources define CRUD interfaces for Eloquent models.","Panel providers register auth and navigation.","Filament tables support sorting, searching, filters, and actions.","Filament forms define schema-driven validation and input rendering."],'
         '"installation_commands":["composer require filament/filament:\\"^5.0\\"","php artisan filament:install --panels"],'
         '"common_commands":["php artisan make:filament-user","php artisan make:filament-resource Customer --generate"],'
+        '"resources":["Resources define CRUD interfaces for Eloquent models.","Use --generate to scaffold resources from schema."],'
+        '"forms":["Define form schemas with reusable components.","Use validation methods directly on fields."],'
+        '"tables":["Define table columns and filters for list pages.","Use actions and bulk actions for workflows."],'
+        '"actions":["Use actions to run record-level workflows.","Require confirmation for destructive actions."],'
+        '"panel_configuration":["Configure panel path and auth in provider.","Discover resources and pages automatically."],'
+        '"testing":["Use Livewire tests for create/edit flows."],'
+        '"upgrade_notes":["Review namespace changes when upgrading to v5."],'
         '"best_practices":["Use generated resources and split schema/table configuration for maintainability."],'
         '"pitfalls":["Check namespace changes when migrating older Filament projects."],'
         '"page_highlights":[{"page":"Resources Overview","url":"https://filamentphp.com/docs/5.x/resources/overview","highlight":"Resources are static classes used to build CRUD interfaces."}]'
@@ -710,3 +739,115 @@ def test_run_tui_natural_language_url_skill_request_reports_crawl_failure(
 
     assert code == 0
     assert any("failed to crawl documentation pages" in line for line in outputs)
+
+
+def test_run_tui_natural_language_url_skill_request_shows_progress_updates(
+    tmp_path: Path, monkeypatch
+) -> None:
+    import denosysbot.cli as cli_module
+
+    pages = [
+        SimpleNamespace(
+            url="https://filamentphp.com/docs/5.x/getting-started",
+            title="Getting Started",
+            excerpt="Filament setup.",
+            depth=0,
+            markdown="composer require filament/filament:\"^5.0\"",
+            headings=("Getting Started",),
+            code_blocks=('composer require filament/filament:"^5.0"',),
+        )
+    ]
+
+    def slow_crawl(start_url, max_pages=16, max_depth=2, http_client=None):
+        time.sleep(0.06)
+        return pages
+
+    monkeypatch.setattr(cli_module, "crawl_docs_site", slow_crawl, raising=False)
+    monkeypatch.setattr(cli_module, "build_crawl_context", lambda crawled: ("Crawled context", crawled), raising=False)
+    monkeypatch.setattr(
+        cli_module,
+        "build_skill_draft",
+        lambda **kwargs: SimpleNamespace(
+            name="filament-v5",
+            description="Filament skill",
+            triggers=("filament", "v5"),
+            body="# FilamentPHP v5\n\n## Documentation\n- https://filamentphp.com/docs/5.x/getting-started\n",
+        ),
+        raising=False,
+    )
+
+    skills_dir = tmp_path / "skills"
+    monkeypatch.setenv("DENOSYSBOT_SKILLS_DIR", str(skills_dir))
+
+    inputs = iter(
+        [
+            "Go to https://filamentphp.com/docs/5.x/getting-started learn everything about filament v5 and create a skill for it",
+            "/exit",
+        ]
+    )
+    outputs: list[str] = []
+    gateway = FakeGateway(responses=["unused"])
+    history_path = tmp_path / "history.json"
+
+    code = run_tui(
+        gateway=gateway,
+        input_fn=lambda _prompt: next(inputs),
+        output_fn=outputs.append,
+        progress_interval_seconds=0.01,
+        progress_phrase_interval_seconds=0.20,
+        history_path=history_path,
+    )
+
+    progress_lines = [line for line in outputs if line.startswith("denosysbot> ")]
+    assert code == 0
+    assert any("Created skill:" in line for line in outputs)
+    assert any("thinking" in line or "working through it" in line for line in progress_lines)
+
+
+def test_run_tui_natural_language_url_skill_request_reports_synthesis_error(
+    tmp_path: Path, monkeypatch
+) -> None:
+    import denosysbot.cli as cli_module
+
+    pages = [
+        SimpleNamespace(
+            url="https://filamentphp.com/docs/5.x/getting-started",
+            title="Getting Started",
+            excerpt="Filament setup.",
+            depth=0,
+            markdown="Install docs",
+            headings=("Getting Started",),
+            code_blocks=(),
+        )
+    ]
+    monkeypatch.setattr(cli_module, "crawl_docs_site", lambda *args, **kwargs: pages, raising=False)
+    monkeypatch.setattr(cli_module, "build_crawl_context", lambda crawled: ("Crawled context", crawled), raising=False)
+    monkeypatch.setattr(
+        cli_module,
+        "build_skill_draft",
+        lambda **kwargs: (_ for _ in ()).throw(SkillSynthesisError("quality gate failed")),
+        raising=False,
+    )
+
+    skills_dir = tmp_path / "skills"
+    monkeypatch.setenv("DENOSYSBOT_SKILLS_DIR", str(skills_dir))
+
+    inputs = iter(
+        [
+            "Go to https://filamentphp.com/docs/5.x/getting-started learn everything about filament v5 and create a skill for it",
+            "/exit",
+        ]
+    )
+    outputs: list[str] = []
+    gateway = FakeGateway(responses=["unused"])
+    history_path = tmp_path / "history.json"
+
+    code = run_tui(
+        gateway=gateway,
+        input_fn=lambda _prompt: next(inputs),
+        output_fn=outputs.append,
+        history_path=history_path,
+    )
+
+    assert code == 0
+    assert any("skill synthesis error:" in line for line in outputs)

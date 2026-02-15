@@ -24,7 +24,7 @@ from denosysbot.skills.engine import (
     render_skill_context,
     update_skill_file,
 )
-from denosysbot.skills.generator import build_skill_draft
+from denosysbot.skills.generator import SkillSynthesisError, build_skill_draft
 from denosysbot.tools.web import (
     build_crawl_context,
     build_web_context,
@@ -351,6 +351,65 @@ def run_tui(
     )
     use_inplace_progress = output_fn is print if inplace_progress is None else inplace_progress
 
+    def _run_with_progress(operation: Callable[[], object]) -> tuple[object | None, Exception | None]:
+        nonlocal progress_phrase_index
+        stop_progress = threading.Event()
+        progress_line_length = 0
+        progress_line_lock = threading.Lock()
+
+        def _progress_message(step: int) -> str:
+            phrase_offset = step // phrase_hold_ticks
+            phrase = PROGRESS_PHRASES[
+                (progress_phrase_index + phrase_offset) % len(PROGRESS_PHRASES)
+            ]
+            ellipsis = ELLIPSIS_FRAMES[step % len(ELLIPSIS_FRAMES)]
+            return f"denosysbot> {phrase}{ellipsis}"
+
+        def _emit_progress(message: str) -> None:
+            nonlocal progress_line_length
+            if use_inplace_progress:
+                with progress_line_lock:
+                    padded = message.ljust(progress_line_length)
+                    sys.stdout.write(f"\r{padded}")
+                    sys.stdout.flush()
+                    progress_line_length = max(progress_line_length, len(message))
+                return
+            output_fn(message)
+
+        def _clear_progress_line() -> None:
+            nonlocal progress_line_length
+            if not use_inplace_progress:
+                return
+            with progress_line_lock:
+                if progress_line_length == 0:
+                    return
+                sys.stdout.write(f"\r{' ' * progress_line_length}\r")
+                sys.stdout.flush()
+                progress_line_length = 0
+
+        def _emit_progress_updates() -> None:
+            step = 1
+            while not stop_progress.wait(progress_interval_seconds):
+                _emit_progress(_progress_message(step))
+                step += 1
+
+        _emit_progress(_progress_message(0))
+        progress_thread = threading.Thread(target=_emit_progress_updates, daemon=True)
+        progress_thread.start()
+        result: object | None = None
+        operation_error: Exception | None = None
+        try:
+            result = operation()
+        except Exception as exc:  # pragma: no cover - runtime exceptions are environment-specific.
+            operation_error = exc
+        finally:
+            stop_progress.set()
+            progress_thread.join()
+            _clear_progress_line()
+
+        progress_phrase_index = (progress_phrase_index + 1) % len(PROGRESS_PHRASES)
+        return result, operation_error
+
     while True:
         try:
             user_message = input_fn("").strip()
@@ -484,19 +543,27 @@ def run_tui(
         if _contains_skill_create_request(user_message):
             urls = extract_urls(user_message)
             skill_name = _suggest_skill_name(user_message, urls)
-            try:
-                if urls:
-                    crawled_pages = crawl_docs_site(
+            if urls:
+                crawled_payload, crawl_error = _run_with_progress(
+                    lambda: crawl_docs_site(
                         urls[0],
                         max_pages=48,
                         max_depth=4,
                     )
-                    reference_context, results = build_crawl_context(crawled_pages)
-                else:
-                    reference_context, results = build_web_context(user_message, max_results=3)
-            except Exception as exc:  # pragma: no cover - network/runtime variability.
-                output_fn(f"denosysbot> web error: {exc}")
-                continue
+                )
+                if crawl_error is not None:
+                    output_fn(f"denosysbot> web error: {crawl_error}")
+                    continue
+                crawled_pages = list(crawled_payload or [])
+                reference_context, results = build_crawl_context(crawled_pages)
+            else:
+                web_payload, web_error = _run_with_progress(
+                    lambda: build_web_context(user_message, max_results=3)
+                )
+                if web_error is not None:
+                    output_fn(f"denosysbot> web error: {web_error}")
+                    continue
+                reference_context, results = web_payload if isinstance(web_payload, tuple) else ("", [])
 
             if not results or not reference_context.strip():
                 if urls:
@@ -509,12 +576,25 @@ def run_tui(
                 continue
 
             if urls:
-                draft = build_skill_draft(
-                    skill_name=skill_name,
-                    source_url=urls[0],
-                    pages=list(results),
-                    model_generate=gateway.generate,
+                draft_payload, draft_error = _run_with_progress(
+                    lambda: build_skill_draft(
+                        skill_name=skill_name,
+                        source_url=urls[0],
+                        pages=list(results),
+                        model_generate=gateway.generate,
+                        require_model=True,
+                    )
                 )
+                if draft_error is not None:
+                    if isinstance(draft_error, SkillSynthesisError):
+                        output_fn(f"denosysbot> skill synthesis error: {draft_error}")
+                    else:
+                        output_fn(f"denosysbot> synthesis failed: {draft_error}")
+                    continue
+                if not hasattr(draft_payload, "name"):
+                    output_fn("denosysbot> synthesis failed: invalid draft response.")
+                    continue
+                draft = draft_payload
                 created = create_skill_folder(
                     skills_dir=resolved_skills_path,
                     name=draft.name,

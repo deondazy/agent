@@ -1,4 +1,6 @@
-from denosysbot.skills.generator import build_skill_markdown
+import pytest
+
+from denosysbot.skills.generator import SkillSynthesisError, build_skill_markdown
 from denosysbot.tools.web import CrawledPage
 
 
@@ -196,3 +198,58 @@ def test_build_skill_markdown_falls_back_when_model_payload_is_invalid() -> None
 
     assert "## Core Concepts" in skill_md
     assert "composer require example/framework" in skill_md
+
+
+def test_build_skill_markdown_require_model_raises_on_invalid_payload() -> None:
+    pages = [
+        CrawledPage(
+            url="https://example.com/docs/getting-started",
+            title="Getting Started",
+            excerpt="Install and configure the framework.",
+            depth=0,
+            markdown="Framework setup guide.",
+            headings=("Getting Started",),
+            code_blocks=("php artisan example:install",),
+        )
+    ]
+
+    with pytest.raises(SkillSynthesisError):
+        build_skill_markdown(
+            skill_name="example-framework",
+            source_url="https://example.com/docs/getting-started",
+            pages=pages,
+            model_generate=lambda _prompt: "not-json",
+            require_model=True,
+        )
+
+
+def test_build_skill_markdown_filters_noisy_documentation_pages() -> None:
+    pages = [
+        CrawledPage(
+            url="https://filamentphp.com/docs/5.x/getting-started",
+            title="Getting Started",
+            excerpt="Start building a panel.",
+            depth=0,
+            markdown="Install with composer require filament/filament:\"^5.0\"",
+            headings=("Getting Started",),
+            code_blocks=('composer require filament/filament:"^5.0"',),
+        ),
+        CrawledPage(
+            url="https://filamentphp.com/docs/5.x/introduction/help",
+            title="Help",
+            excerpt="Community support page.",
+            depth=1,
+            markdown="Help and support options.",
+            headings=("Help",),
+            code_blocks=(),
+        ),
+    ]
+
+    skill_md = build_skill_markdown(
+        skill_name="filament-v5",
+        source_url="https://filamentphp.com/docs/5.x/getting-started",
+        pages=pages,
+    )
+
+    assert "https://filamentphp.com/docs/5.x/getting-started" in skill_md
+    assert "https://filamentphp.com/docs/5.x/introduction/help" not in skill_md

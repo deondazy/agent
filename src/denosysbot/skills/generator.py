@@ -54,6 +54,39 @@ STOPWORDS = {
     "concept",
     "concepts",
 }
+NOISY_DOC_PATH_HINTS = (
+    "/help",
+    "/contributing",
+    "/version-support-policy",
+    "/introduction/ai",
+    "/community",
+    "/support",
+)
+DOMAIN_SECTION_ORDER: tuple[tuple[str, str, tuple[str, ...]], ...] = (
+    ("resources", "Resources", ("/resources/", " resource", "crud")),
+    ("forms", "Forms", ("/forms/", " form", "field", "schema")),
+    ("tables", "Tables", ("/tables/", " table", "column", "filter")),
+    ("actions", "Actions", ("/actions/", " action", "modal")),
+    ("panel_configuration", "Panel Configuration", ("/panel", "panel", "navigation", "auth")),
+    ("testing", "Testing", ("/testing", "test", "pest", "livewire")),
+    ("upgrade_notes", "Upgrade Notes", ("/upgrade", "deprecat", "migrat", "namespace")),
+)
+GENERIC_CONCEPT_TERMS = {
+    "introduction",
+    "getting started",
+    "resources",
+    "tables",
+    "schemas",
+    "forms",
+    "infolists",
+    "actions",
+    "notifications",
+    "widgets",
+}
+
+
+class SkillSynthesisError(RuntimeError):
+    """Raised when strict model-assisted skill synthesis fails quality gates."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -80,26 +113,39 @@ def build_skill_draft(
     source_url: str,
     pages: list[Any],
     model_generate: Callable[[str], str] | None = None,
+    require_model: bool = False,
 ) -> SkillDraft:
     """Build a structured skill draft from crawled docs pages."""
 
     normalized_name = _normalize_name(skill_name)
     display_name = _display_name(normalized_name)
-    documentation_urls = _collect_urls(source_url, pages)
-    page_map = _collect_page_map(pages)
+    synthesis_pages = _curate_pages_for_synthesis(pages, source_url=source_url)
+    documentation_urls = _collect_urls(source_url, synthesis_pages, max_items=36)
+    page_map = _collect_page_map(synthesis_pages)
+    model_failure_reason = ""
 
-    if model_generate and _can_use_model_synthesis(pages):
-        drafted = _build_model_assisted_draft(
+    if model_generate and _can_use_model_synthesis(synthesis_pages):
+        drafted, model_failure_reason = _build_model_assisted_draft(
             normalized_name=normalized_name,
             display_name=display_name,
             source_url=source_url,
             documentation_urls=documentation_urls,
             page_map=page_map,
-            pages=pages,
+            pages=synthesis_pages,
             model_generate=model_generate,
+            strict_quality=require_model,
         )
         if drafted is not None:
             return drafted
+    elif require_model:
+        if model_generate is None:
+            model_failure_reason = "no model provider available for synthesis"
+        else:
+            model_failure_reason = "insufficient crawled content for model-assisted synthesis"
+
+    if require_model:
+        reason = model_failure_reason or "model-assisted synthesis did not produce a valid skill"
+        raise SkillSynthesisError(reason)
 
     return _build_heuristic_skill_draft(
         normalized_name=normalized_name,
@@ -107,7 +153,7 @@ def build_skill_draft(
         source_url=source_url,
         documentation_urls=documentation_urls,
         page_map=page_map,
-        pages=pages,
+        pages=synthesis_pages,
     )
 
 
@@ -117,6 +163,7 @@ def build_skill_markdown(
     source_url: str,
     pages: list[Any],
     model_generate: Callable[[str], str] | None = None,
+    require_model: bool = False,
 ) -> str:
     """Build full SKILL.md markdown including frontmatter."""
 
@@ -125,6 +172,7 @@ def build_skill_markdown(
         source_url=source_url,
         pages=pages,
         model_generate=model_generate,
+        require_model=require_model,
     ).to_markdown()
 
 
@@ -140,10 +188,12 @@ def _build_heuristic_skill_draft(
     concepts = _collect_concepts(pages)
     commands = _collect_commands(pages)
     install_commands, common_commands = _split_command_groups(commands)
-    page_highlights = _collect_page_highlights(pages)
+    page_highlights = _cleanup_page_highlights(_collect_page_highlights(pages))
 
     if not concepts:
         concepts = ["Use crawled documentation pages as authoritative guidance."]
+    concepts = _cleanup_concepts(concepts) or ["Use crawled documentation pages as authoritative guidance."]
+    domain_sections = _coerce_domain_sections({}, pages=pages)
 
     body_lines = _render_skill_body(
         display_name=display_name,
@@ -156,6 +206,7 @@ def _build_heuristic_skill_draft(
         page_highlights=page_highlights,
         best_practices=(),
         pitfalls=(),
+        domain_sections=domain_sections,
         include_learned_intro=True,
     )
 
@@ -172,13 +223,75 @@ def _build_heuristic_skill_draft(
     )
 
 
+def _curate_pages_for_synthesis(pages: list[Any], *, source_url: str) -> list[Any]:
+    if not pages:
+        return []
+
+    source = source_url.strip()
+    scored: list[tuple[int, Any]] = []
+    for page in pages:
+        url = str(getattr(page, "url", "")).strip()
+        lowered_url = url.lower()
+        score = 0
+        if url == source:
+            score += 200
+        depth = int(getattr(page, "depth", 0) or 0)
+        score += max(0, 12 - depth * 2)
+
+        headings = tuple(getattr(page, "headings", ()) or ())
+        code_blocks = tuple(getattr(page, "code_blocks", ()) or ())
+        score += min(16, len(headings))
+        score += min(24, len(code_blocks) * 3)
+
+        if any(hint in lowered_url for hint in NOISY_DOC_PATH_HINTS):
+            score -= 35
+
+        for _key, _title, hint_tokens in DOMAIN_SECTION_ORDER:
+            if any(token in lowered_url for token in hint_tokens):
+                score += 18
+                break
+
+        excerpt = str(getattr(page, "excerpt", "")).strip()
+        if excerpt:
+            score += min(12, len(excerpt) // 120)
+
+        scored.append((score, page))
+
+    scored.sort(key=lambda item: item[0], reverse=True)
+
+    curated: list[Any] = []
+    seen_urls: set[str] = set()
+    for score, page in scored:
+        if score < -10:
+            continue
+        url = str(getattr(page, "url", "")).strip()
+        if not url or url in seen_urls:
+            continue
+        seen_urls.add(url)
+        curated.append(page)
+        if len(curated) >= 30:
+            break
+
+    if not curated:
+        return pages[:30]
+    return curated
+
+
 def _can_use_model_synthesis(pages: list[Any]) -> bool:
     for page in pages:
         markdown = str(getattr(page, "markdown", "")).strip()
         headings = tuple(getattr(page, "headings", ()) or ())
         blocks = tuple(getattr(page, "code_blocks", ()) or ())
-        if len(markdown) >= 160 or len(headings) >= 3 or len(blocks) >= 2:
+        excerpt = str(getattr(page, "excerpt", "")).strip()
+        if (
+            len(markdown) >= 160
+            or len(headings) >= 3
+            or len(blocks) >= 2
+            or len(excerpt) >= 20
+        ):
             return True
+    if len(pages) >= 2:
+        return True
     return False
 
 
@@ -191,7 +304,8 @@ def _build_model_assisted_draft(
     page_map: list[tuple[str, str]],
     pages: list[Any],
     model_generate: Callable[[str], str],
-) -> SkillDraft | None:
+    strict_quality: bool,
+) -> tuple[SkillDraft | None, str]:
     prompt = _build_model_prompt(
         display_name=display_name,
         source_url=source_url,
@@ -199,18 +313,19 @@ def _build_model_assisted_draft(
     )
     try:
         raw = model_generate(prompt)
-    except Exception:
-        return None
+    except Exception as exc:
+        return None, f"model provider failed during synthesis: {exc}"
 
     payload = _parse_model_payload(raw)
     if payload is None:
-        return None
+        return None, "model returned invalid JSON payload for synthesis"
 
     concepts = _coerce_string_list(payload.get("core_concepts"), max_items=24, min_len=8)
     if not concepts:
         concepts = _collect_concepts(pages)
     if not concepts:
         concepts = ["Use crawled documentation pages as authoritative guidance."]
+    concepts = _cleanup_concepts(concepts)
 
     commands = _collect_commands(pages)
     install_commands, common_commands = _split_command_groups(commands)
@@ -226,9 +341,22 @@ def _build_model_assisted_draft(
     page_highlights = _coerce_page_highlights(payload.get("page_highlights"), fallback_pages=pages)
     if not page_highlights:
         page_highlights = _collect_page_highlights(pages)
+    page_highlights = _cleanup_page_highlights(page_highlights)
 
     best_practices = _coerce_string_list(payload.get("best_practices"), max_items=12, min_len=14)
     pitfalls = _coerce_string_list(payload.get("pitfalls"), max_items=10, min_len=14)
+    domain_sections = _coerce_domain_sections(payload, pages=pages)
+    if strict_quality:
+        quality_issues = _validate_synthesis_quality(
+            concepts=concepts,
+            install_commands=install_commands,
+            common_commands=common_commands,
+            page_highlights=page_highlights,
+            domain_sections=domain_sections,
+            page_count=len(pages),
+        )
+        if quality_issues:
+            return None, f"synthesis quality gate failed: {'; '.join(quality_issues)}"
 
     body_lines = _render_skill_body(
         display_name=display_name,
@@ -241,6 +369,7 @@ def _build_model_assisted_draft(
         page_highlights=page_highlights,
         best_practices=best_practices,
         pitfalls=pitfalls,
+        domain_sections=domain_sections,
         include_learned_intro=True,
     )
 
@@ -258,11 +387,14 @@ def _build_model_assisted_draft(
     if not trigger_tokens:
         trigger_tokens = _derive_triggers(normalized_name, concepts)
 
-    return SkillDraft(
-        name=normalized_name,
-        description=description,
-        triggers=trigger_tokens,
-        body="\n".join(body_lines),
+    return (
+        SkillDraft(
+            name=normalized_name,
+            description=description,
+            triggers=trigger_tokens,
+            body="\n".join(body_lines),
+        ),
+        "",
     )
 
 
@@ -283,6 +415,13 @@ def _build_model_prompt(
         '  "core_concepts": ["string"],\n'
         '  "installation_commands": ["command"],\n'
         '  "common_commands": ["command"],\n'
+        '  "resources": ["string"],\n'
+        '  "forms": ["string"],\n'
+        '  "tables": ["string"],\n'
+        '  "actions": ["string"],\n'
+        '  "panel_configuration": ["string"],\n'
+        '  "testing": ["string"],\n'
+        '  "upgrade_notes": ["string"],\n'
         '  "best_practices": ["string"],\n'
         '  "pitfalls": ["string"],\n'
         '  "page_highlights": [{"page": "string", "url": "https://...", "highlight": "string"}]\n'
@@ -292,6 +431,8 @@ def _build_model_prompt(
         "- Include installation commands only if directly evidenced.\n"
         "- Keep command entries as runnable shell lines (no prose).\n"
         "- For page_highlights, prefer 1 sentence grounded in that page content.\n"
+        "- Fill each domain section only with evidence-backed bullets. Keep each bullet concise.\n"
+        "- Do not return markdown, only JSON.\n"
         f"- Topic: {display_name}\n"
         f"- Source URL: {source_url}\n"
         "\n"
@@ -382,6 +523,8 @@ def _coerce_string_list(value: Any, *, max_items: int, min_len: int) -> list[str
     items: list[str] = []
     for raw in value:
         text = WHITESPACE_PATTERN.sub(" ", str(raw)).strip()
+        text = re.sub(r"^#+\s*", "", text)
+        text = text.strip()
         if len(text) < min_len:
             continue
         if text.endswith(":"):
@@ -399,7 +542,7 @@ def _coerce_commands(value: Any, *, max_items: int) -> list[str]:
     items: list[str] = []
     signatures: set[str] = set()
     for raw in value:
-        command = WHITESPACE_PATTERN.sub(" ", str(raw)).strip().strip("`")
+        command = _clean_command_candidate(str(raw))
         if not command:
             continue
         if not _is_valid_command(command):
@@ -465,6 +608,119 @@ def _coerce_page_highlights(value: Any, *, fallback_pages: list[Any]) -> list[tu
     return highlights
 
 
+def _coerce_domain_sections(payload: dict[str, Any], *, pages: list[Any]) -> dict[str, list[str]]:
+    sections: dict[str, list[str]] = {}
+    for key, _title, hint_tokens in DOMAIN_SECTION_ORDER:
+        model_items = _coerce_string_list(payload.get(key), max_items=10, min_len=14)
+        if model_items:
+            sections[key] = model_items
+            continue
+        sections[key] = _collect_domain_section_fallback(pages, hint_tokens=hint_tokens, max_items=8)
+    return sections
+
+
+def _collect_domain_section_fallback(
+    pages: list[Any],
+    *,
+    hint_tokens: tuple[str, ...],
+    max_items: int,
+) -> list[str]:
+    lines: list[str] = []
+    for page in pages:
+        url = str(getattr(page, "url", "")).lower()
+        title = str(getattr(page, "title", "")).lower()
+        heading_blob = " ".join(str(item).lower() for item in (getattr(page, "headings", ()) or ()))
+        if not any(token in url or token in title or token in heading_blob for token in hint_tokens):
+            continue
+        for fact in _extract_fact_lines(page):
+            sentence = _normalize_sentence(fact)
+            if not sentence:
+                continue
+            if sentence.lower() not in {item.lower() for item in lines}:
+                lines.append(sentence)
+            if len(lines) >= max_items:
+                return lines
+    return lines
+
+
+def _cleanup_concepts(concepts: list[str]) -> list[str]:
+    cleaned: list[str] = []
+    for concept in concepts:
+        normalized = concept.strip()
+        normalized = re.sub(r"^#+\s*", "", normalized)
+        normalized = WHITESPACE_PATTERN.sub(" ", normalized).strip()
+        if not normalized:
+            continue
+        lower = normalized.lower().rstrip(".")
+        if lower in GENERIC_CONCEPT_TERMS:
+            continue
+        normalized = _normalize_sentence(normalized)
+        if len(normalized) < 14:
+            continue
+        if normalized.lower() not in {item.lower() for item in cleaned}:
+            cleaned.append(normalized)
+    return cleaned[:24]
+
+
+def _cleanup_page_highlights(items: list[tuple[str, str]]) -> list[tuple[str, str]]:
+    cleaned: list[tuple[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for page_title, highlight in items:
+        line = WHITESPACE_PATTERN.sub(" ", highlight).strip()
+        if not line:
+            continue
+        line = re.sub(r"\s*\([^)]*https?://[^)]*\)", "", line).strip()
+        sentence_parts = SENTENCE_PATTERN.split(line)
+        if sentence_parts:
+            line = sentence_parts[0].strip()
+        line = _normalize_sentence(line)
+        if len(line) < 28:
+            continue
+        if line.endswith(":.") or line.endswith(".."):
+            continue
+        key = (page_title.lower(), line.lower())
+        if key in seen:
+            continue
+        seen.add(key)
+        cleaned.append((page_title, line))
+    return cleaned[:22]
+
+
+def _validate_synthesis_quality(
+    *,
+    concepts: list[str],
+    install_commands: list[str],
+    common_commands: list[str],
+    page_highlights: list[tuple[str, str]],
+    domain_sections: dict[str, list[str]],
+    page_count: int,
+) -> list[str]:
+    issues: list[str] = []
+    min_concepts = 8 if page_count >= 10 else 4
+    min_install = 2 if page_count >= 6 else 1
+    min_common = 6 if page_count >= 10 else 2
+    min_highlights = 5 if page_count >= 10 else 1
+    min_covered_sections = 3 if page_count >= 10 else 1
+
+    if len(concepts) < min_concepts:
+        issues.append("insufficient core concepts")
+    if len(install_commands) < min_install:
+        issues.append("insufficient installation commands")
+    if len(common_commands) < min_common:
+        issues.append("insufficient common commands")
+    if len(page_highlights) < min_highlights:
+        issues.append("insufficient page highlights")
+
+    covered_sections = sum(1 for key, _title, _tokens in DOMAIN_SECTION_ORDER if len(domain_sections.get(key, [])) >= 2)
+    if covered_sections < min_covered_sections:
+        issues.append("insufficient domain section coverage")
+
+    if any(item.strip().startswith("#") for item in concepts):
+        issues.append("concepts contain markdown heading artifacts")
+
+    return issues
+
+
 def _normalize_trigger_tokens(tokens: list[str]) -> tuple[str, ...]:
     normalized: list[str] = []
     for token in tokens:
@@ -493,6 +749,7 @@ def _render_skill_body(
     page_highlights: list[tuple[str, str]],
     best_practices: tuple[str, ...] | list[str],
     pitfalls: tuple[str, ...] | list[str],
+    domain_sections: dict[str, list[str]],
     include_learned_intro: bool,
 ) -> list[str]:
     body_lines = [f"# {display_name}", ""]
@@ -517,6 +774,15 @@ def _render_skill_body(
     for concept in concepts[:22]:
         body_lines.append(f"- {concept}")
     body_lines.append("")
+
+    for key, title, _tokens in DOMAIN_SECTION_ORDER:
+        section_items = list(domain_sections.get(key, []))
+        if not section_items:
+            continue
+        body_lines.append(f"## {title}")
+        for item in section_items[:10]:
+            body_lines.append(f"- {item}")
+        body_lines.append("")
 
     if common_commands:
         body_lines.append("## Common Commands")
@@ -578,12 +844,14 @@ def _display_name(skill_name: str) -> str:
     return skill_name.replace("-", " ").title()
 
 
-def _collect_urls(source_url: str, pages: list[Any]) -> list[str]:
+def _collect_urls(source_url: str, pages: list[Any], *, max_items: int = 40) -> list[str]:
     urls: list[str] = [source_url]
     for page in pages:
         url = str(getattr(page, "url", "")).strip()
         if url and url not in urls:
             urls.append(url)
+        if len(urls) >= max(1, max_items):
+            break
     return urls
 
 
@@ -611,7 +879,7 @@ def _collect_commands(pages: list[Any]) -> list[str]:
     signatures: set[str] = set()
 
     def _push(candidate: str) -> None:
-        compact = WHITESPACE_PATTERN.sub(" ", candidate).strip().strip("`")
+        compact = _clean_command_candidate(candidate)
         if not compact:
             return
 
@@ -621,7 +889,7 @@ def _collect_commands(pages: list[Any]) -> list[str]:
             flags=re.IGNORECASE,
         )
         for segment in segments:
-            item = segment.strip(" ;")
+            item = _clean_command_candidate(segment.strip(" ;"))
             if not item:
                 continue
             if len(item) > 220:
@@ -766,8 +1034,21 @@ def _command_signature(command: str) -> str:
     return normalized
 
 
+def _clean_command_candidate(value: str) -> str:
+    candidate = WHITESPACE_PATTERN.sub(" ", value).strip().strip("`")
+    if not candidate:
+        return ""
+    if " #" in candidate:
+        candidate = candidate.split(" #", 1)[0].strip()
+    if candidate.startswith("#"):
+        return ""
+    candidate = candidate.strip(" ;")
+    return candidate
+
+
 def _normalize_sentence(value: str) -> str:
-    line = WHITESPACE_PATTERN.sub(" ", value).strip().rstrip(".")
+    line = re.sub(r"^#+\s*", "", value)
+    line = WHITESPACE_PATTERN.sub(" ", line).strip().rstrip(".")
     return f"{line}." if line else ""
 
 
