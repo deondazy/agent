@@ -148,6 +148,26 @@ def test_run_tui_handles_provider_error_and_continues(tmp_path: Path) -> None:
     assert any("error:" in line for line in outputs)
 
 
+def test_run_tui_persists_user_turn_even_when_provider_errors(tmp_path: Path) -> None:
+    inputs = iter(["hello", "/exit"])
+    outputs: list[str] = []
+    gateway = FakeGateway(raise_error=True)
+    history_path = tmp_path / "history.json"
+
+    code = run_tui(
+        gateway=gateway,
+        input_fn=lambda _prompt: next(inputs),
+        output_fn=outputs.append,
+        history_path=history_path,
+    )
+
+    assert code == 0
+    assert any("error:" in line for line in outputs)
+    assert json.loads(history_path.read_text()) == [
+        {"role": "user", "content": "hello"},
+    ]
+
+
 def test_run_tui_progress_phrase_changes_between_submissions(tmp_path: Path) -> None:
     inputs = iter(["hello", "again", "/exit"])
     outputs: list[str] = []

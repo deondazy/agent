@@ -258,6 +258,8 @@ def run_tui(
         progress_phrase_index = (progress_phrase_index + 1) % len(PROGRESS_PHRASES)
 
         if provider_error is not None:
+            history.append(("user", user_message))
+            persist_chat_history(resolved_history_path, history)
             output_fn(f"denosysbot> error: {provider_error}")
             continue
 
