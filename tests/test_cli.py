@@ -568,6 +568,8 @@ def test_run_tui_natural_language_url_skill_request_creates_skill(
     assert code == 0
     assert len(created_files) == 1
     skill_text = created_files[0].read_text()
+    assert "## Documentation" in skill_text
+    assert "## Core Concepts" in skill_text
     assert "Filament v5 documentation excerpt" in skill_text
     assert "https://filamentphp.com/docs/5.x/getting-started" in skill_text
     assert any("Created skill:" in line for line in outputs)

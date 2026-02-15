@@ -128,6 +128,14 @@ Web browsing is enabled by default for `/web`, `/skill learn`, and automatic
 lookup hints in normal messages. Disable auto web enrichment for normal chat by
 setting `DENOSYSBOT_ENABLE_WEB_BROWSE=0`.
 
+For richer documentation crawling (JS-rendered docs, cleaner extraction):
+
+```bash
+source .venv/bin/activate
+pip install beautifulsoup4 lxml trafilatura markdownify playwright
+playwright install chromium
+```
+
 ## Model providers
 
 Configure keys with environment variables:

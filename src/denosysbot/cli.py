@@ -24,6 +24,7 @@ from denosysbot.skills.engine import (
     render_skill_context,
     update_skill_file,
 )
+from denosysbot.skills.generator import build_skill_draft
 from denosysbot.tools.web import (
     build_crawl_context,
     build_web_context,
@@ -501,13 +502,27 @@ def run_tui(
                 output_fn("denosysbot> web: no usable references found for skill creation.")
                 continue
 
-            created = create_skill_folder(
-                skills_dir=resolved_skills_path,
-                name=skill_name,
-                description=_build_learned_skill_description(user_message, urls, skill_name),
-                triggers=_extract_keywords(skill_name.replace("-", " ")),
-                body=_build_learned_skill_body(reference_context),
-            )
+            if urls:
+                draft = build_skill_draft(
+                    skill_name=skill_name,
+                    source_url=urls[0],
+                    pages=list(results),
+                )
+                created = create_skill_folder(
+                    skills_dir=resolved_skills_path,
+                    name=draft.name,
+                    description=draft.description,
+                    triggers=draft.triggers,
+                    body=draft.body,
+                )
+            else:
+                created = create_skill_folder(
+                    skills_dir=resolved_skills_path,
+                    name=skill_name,
+                    description=_build_learned_skill_description(user_message, urls, skill_name),
+                    triggers=_extract_keywords(skill_name.replace("-", " ")),
+                    body=_build_learned_skill_body(reference_context),
+                )
             output_fn(f"Created skill: {created}")
             output_fn(f"Learned from {len(results)} source(s).")
             continue

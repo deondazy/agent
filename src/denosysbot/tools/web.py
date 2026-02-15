@@ -33,6 +33,9 @@ class CrawledPage:
     title: str
     excerpt: str
     depth: int
+    markdown: str = ""
+    headings: tuple[str, ...] = ()
+    code_blocks: tuple[str, ...] = ()
 
 
 def extract_urls(text: str) -> tuple[str, ...]:
@@ -205,20 +208,29 @@ def crawl_docs_site(
             continue
         visited.add(current_url)
 
-        try:
-            response = http_client.get(current_url, headers={"User-Agent": "denosysbot/0.1 (+https://example.local)"})
-            response.raise_for_status()
-        except httpx.HTTPError:
+        html, content_type = _fetch_page_html(current_url, http_client=http_client)
+        if not html:
             continue
 
-        content_type = response.headers.get("content-type", "")
         if "text/html" not in content_type and "application/xhtml+xml" not in content_type:
             continue
 
-        html = response.text
         title = _extract_html_title(html) or urlparse(current_url).path.strip("/") or current_url
+        markdown = _extract_markdown_content(html, url=current_url, max_chars=max_excerpt_chars * 4)
         excerpt = _extract_plain_excerpt(html, max_chars=max_excerpt_chars)
-        crawled.append(CrawledPage(url=current_url, title=title, excerpt=excerpt, depth=depth))
+        headings = _extract_headings(html)
+        code_blocks = _extract_code_blocks(html)
+        crawled.append(
+            CrawledPage(
+                url=current_url,
+                title=title,
+                excerpt=excerpt,
+                depth=depth,
+                markdown=markdown,
+                headings=headings,
+                code_blocks=code_blocks,
+            )
+        )
 
         if depth >= max_depth:
             continue
@@ -299,12 +311,79 @@ def _strip_tags(raw: str) -> str:
 
 def _extract_html_links(html: str, base_url: str) -> tuple[str, ...]:
     links: list[str] = []
+
+    try:
+        from bs4 import BeautifulSoup
+    except ImportError:  # pragma: no cover - optional dependency
+        BeautifulSoup = None
+
+    if BeautifulSoup is not None:
+        soup = BeautifulSoup(html, "lxml")
+        for anchor in soup.find_all("a"):
+            href = anchor.get("href")
+            if not isinstance(href, str):
+                continue
+            absolute = urljoin(base_url, unescape(href).strip())
+            canonical = _canonical_url(absolute)
+            if canonical and canonical not in links:
+                links.append(canonical)
+        return tuple(links)
+
     for raw_href in HREF_PATTERN.findall(html):
         absolute = urljoin(base_url, unescape(raw_href).strip())
         canonical = _canonical_url(absolute)
         if canonical and canonical not in links:
             links.append(canonical)
     return tuple(links)
+
+
+def _fetch_page_html(
+    url: str,
+    *,
+    http_client: httpx.Client,
+) -> tuple[str, str]:
+    try:
+        response = http_client.get(url, headers={"User-Agent": "denosysbot/0.1 (+https://example.local)"})
+        response.raise_for_status()
+    except httpx.HTTPError:
+        return "", ""
+
+    content_type = response.headers.get("content-type", "")
+    html = response.text
+
+    if _should_try_browser_render(content_type, html):
+        rendered = _render_with_playwright(url)
+        if rendered:
+            return rendered, "text/html"
+
+    return html, content_type
+
+
+def _should_try_browser_render(content_type: str, html: str) -> bool:
+    if "text/html" not in content_type and "application/xhtml+xml" not in content_type:
+        return False
+    lowered = html.lower()
+    if len(lowered.strip()) < 500:
+        return True
+    return "__next" in lowered or "id=\"app\"" in lowered or "data-hydration" in lowered
+
+
+def _render_with_playwright(url: str) -> str:
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:  # pragma: no cover - optional dependency
+        return ""
+
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            page = browser.new_page()
+            page.goto(url, wait_until="networkidle", timeout=30000)
+            content = page.content()
+            browser.close()
+            return content or ""
+    except Exception:  # pragma: no cover - browser/runtime variability
+        return ""
 
 
 def _canonical_url(url: str) -> str:
@@ -357,3 +436,122 @@ def _extract_plain_excerpt(html: str, *, max_chars: int) -> str:
     if not text:
         return ""
     return text if len(text) <= max_chars else f"{text[:max_chars].rstrip()}..."
+
+
+def _extract_markdown_content(html: str, *, url: str, max_chars: int) -> str:
+    try:
+        import trafilatura
+    except ImportError:  # pragma: no cover - optional dependency
+        trafilatura = None
+
+    markdown = ""
+    if trafilatura is not None:
+        try:
+            extracted = trafilatura.extract(
+                html,
+                url=url,
+                output_format="markdown",
+                include_links=True,
+                include_formatting=True,
+                include_tables=True,
+                favor_precision=True,
+            )
+            if isinstance(extracted, str):
+                markdown = extracted.strip()
+        except Exception:  # pragma: no cover - parser variability
+            markdown = ""
+
+    if not markdown:
+        try:
+            from markdownify import markdownify
+        except ImportError:  # pragma: no cover - optional dependency
+            markdownify = None
+
+        if markdownify is not None:
+            try:
+                converted = markdownify(html, heading_style="ATX")
+                if isinstance(converted, str):
+                    markdown = converted.strip()
+            except Exception:  # pragma: no cover - parser variability
+                markdown = ""
+
+    if not markdown:
+        markdown = _strip_tags(SCRIPT_STYLE_PATTERN.sub(" ", html))
+
+    if not markdown:
+        return ""
+
+    lines: list[str] = []
+    for raw_line in markdown.replace("\r", "\n").splitlines():
+        line = re.sub(r"[ \t]+", " ", raw_line).strip()
+        if line:
+            lines.append(line)
+    cleaned = "\n".join(lines).strip()
+    if not cleaned:
+        return ""
+    return cleaned if len(cleaned) <= max_chars else f"{cleaned[:max_chars].rstrip()}..."
+
+
+def _extract_headings(html: str, *, max_headings: int = 40) -> tuple[str, ...]:
+    headings: list[str] = []
+
+    try:
+        from bs4 import BeautifulSoup
+    except ImportError:  # pragma: no cover - optional dependency
+        BeautifulSoup = None
+
+    if BeautifulSoup is not None:
+        soup = BeautifulSoup(html, "lxml")
+        for tag in soup.find_all(["h1", "h2", "h3"]):
+            text = tag.get_text(" ", strip=True)
+            if text and text not in headings:
+                headings.append(text)
+                if len(headings) >= max_headings:
+                    break
+        return tuple(headings)
+
+    pattern = re.compile(r"<h[1-3][^>]*>(.*?)</h[1-3]>", flags=re.IGNORECASE | re.DOTALL)
+    for raw in pattern.findall(html):
+        text = _strip_tags(raw)
+        if text and text not in headings:
+            headings.append(text)
+            if len(headings) >= max_headings:
+                break
+    return tuple(headings)
+
+
+def _extract_code_blocks(html: str, *, max_blocks: int = 20, max_chars: int = 5000) -> tuple[str, ...]:
+    blocks: list[str] = []
+
+    try:
+        from bs4 import BeautifulSoup
+    except ImportError:  # pragma: no cover - optional dependency
+        BeautifulSoup = None
+
+    if BeautifulSoup is not None:
+        soup = BeautifulSoup(html, "lxml")
+        for node in soup.find_all(["pre", "code"]):
+            text = node.get_text("\n", strip=True)
+            if not text:
+                continue
+            cleaned = WHITESPACE_PATTERN.sub(" ", text).strip()
+            if cleaned and cleaned not in blocks:
+                if len(cleaned) > max_chars:
+                    cleaned = f"{cleaned[:max_chars].rstrip()}..."
+                blocks.append(cleaned)
+                if len(blocks) >= max_blocks:
+                    break
+        return tuple(blocks)
+
+    pattern = re.compile(r"<pre[^>]*>(.*?)</pre>|<code[^>]*>(.*?)</code>", flags=re.IGNORECASE | re.DOTALL)
+    for raw_pre, raw_code in pattern.findall(html):
+        raw = raw_pre or raw_code
+        text = _strip_tags(raw)
+        cleaned = WHITESPACE_PATTERN.sub(" ", text).strip()
+        if cleaned and cleaned not in blocks:
+            if len(cleaned) > max_chars:
+                cleaned = f"{cleaned[:max_chars].rstrip()}..."
+            blocks.append(cleaned)
+            if len(blocks) >= max_blocks:
+                break
+    return tuple(blocks)
