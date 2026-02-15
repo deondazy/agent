@@ -35,7 +35,7 @@ What it does:
 1. Detects Python (`python3.12` preferred, then `python3`)
 2. Creates `.venv` if missing
 3. Installs package + dev dependencies
-4. Launches an interactive walkthrough to write/update `.env`, querying each selected provider for live available models before prompting model selection
+4. Launches a Textual-based interactive walkthrough to write/update `.env`, querying each selected provider for live available models before prompting model selection
 5. Prints exact commands to start API, Redis, and Celery worker
 
 You can also run the walkthrough directly after install:
@@ -92,7 +92,7 @@ Or use helper scripts:
 
 ## Chat TUI
 
-After install, open an interactive chat session:
+After install, open the Textual chat session:
 
 ```bash
 cd /path/to/agent
