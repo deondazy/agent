@@ -514,12 +514,32 @@ def test_run_tui_natural_language_url_skill_request_creates_skill(
 
     monkeypatch.setattr(
         cli_module,
-        "build_url_context",
-        lambda urls, max_excerpt_chars=2200: (
-            "Live URL references:\n"
+        "crawl_docs_site",
+        lambda start_url, max_pages=16, max_depth=2, http_client=None: [
+            SimpleNamespace(
+                url="https://filamentphp.com/docs/5.x/getting-started",
+                title="Getting Started",
+                excerpt="Filament v5 documentation excerpt",
+                depth=0,
+            ),
+            SimpleNamespace(
+                url="https://filamentphp.com/docs/5.x/panels/installation",
+                title="Panels Installation",
+                excerpt="Install and configure panels.",
+                depth=1,
+            ),
+        ],
+        raising=False,
+    )
+    monkeypatch.setattr(
+        cli_module,
+        "build_crawl_context",
+        lambda pages: (
+            "Crawled documentation pages:\n"
             "1. https://filamentphp.com/docs/5.x/getting-started\n"
-            "   Excerpt: Filament v5 documentation excerpt",
-            [SimpleNamespace(title="Filament Docs", url=urls[0], excerpt="Filament v5 documentation excerpt")],
+            "   Excerpt: Filament v5 documentation excerpt\n"
+            "2. https://filamentphp.com/docs/5.x/panels/installation",
+            pages,
         ),
         raising=False,
     )
@@ -544,7 +564,7 @@ def test_run_tui_natural_language_url_skill_request_creates_skill(
         history_path=history_path,
     )
 
-    created_files = list(skills_dir.glob("*.md"))
+    created_files = list(skills_dir.glob("**/SKILL.md"))
     assert code == 0
     assert len(created_files) == 1
     skill_text = created_files[0].read_text()

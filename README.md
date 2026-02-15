@@ -111,6 +111,11 @@ Commands inside TUI:
 - `/web <query>` run live web search and print source links
 - `/exit` quit
 
+Natural-language requests like
+`Go to https://... learn everything about X and create a skill`
+trigger an agentic docs crawl (same-site, page-by-page) and generate a
+foldered skill at `~/.denosysbot/skills/<skill-name>/SKILL.md`.
+
 Chat history is now persisted between `denosysbot tui` sessions by default at
 `~/.denosysbot/history.json`. Override this path with
 `DENOSYSBOT_CHAT_HISTORY_PATH`.

@@ -2,6 +2,7 @@
 
 from denosysbot.skills.engine import (
     SkillDefinition,
+    create_skill_folder,
     create_skill_file,
     load_skills,
     match_skills,
@@ -11,6 +12,7 @@ from denosysbot.skills.engine import (
 
 __all__ = [
     "SkillDefinition",
+    "create_skill_folder",
     "create_skill_file",
     "load_skills",
     "match_skills",

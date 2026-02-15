@@ -17,13 +17,19 @@ from denosysbot.adapters.models.factory import build_model_gateway
 from denosysbot.core.config import get_settings
 from denosysbot.installer import run_walkthrough
 from denosysbot.skills.engine import (
+    create_skill_folder,
     create_skill_file,
     load_skills,
     match_skills,
     render_skill_context,
     update_skill_file,
 )
-from denosysbot.tools.web import build_url_context, build_web_context, extract_urls
+from denosysbot.tools.web import (
+    build_crawl_context,
+    build_web_context,
+    crawl_docs_site,
+    extract_urls,
+)
 
 InputFn = Callable[[str], str]
 OutputFn = Callable[[str], None]
@@ -292,6 +298,22 @@ def _build_learned_skill_body(reference_context: str) -> str:
     return "\n".join(lines)
 
 
+def _build_learned_skill_description(user_message: str, urls: tuple[str, ...], skill_name: str) -> str:
+    if urls:
+        parsed = urlparse(urls[0])
+        host = parsed.netloc
+        return (
+            f"Agentic documentation skill for {skill_name}. Use when users ask about topics from {host}. "
+            "Ground answers in crawled docs pages and cite relevant sections."
+        )
+
+    topic_tokens = " ".join(_extract_keywords(user_message)[:6])
+    return (
+        f"Agentic learned skill for {skill_name}. Use when requests match: {topic_tokens}. "
+        "Ground guidance in browsed references."
+    )
+
+
 def run_tui(
     *,
     gateway=None,
@@ -463,7 +485,12 @@ def run_tui(
             skill_name = _suggest_skill_name(user_message, urls)
             try:
                 if urls:
-                    reference_context, results = build_url_context(urls, max_excerpt_chars=2200)
+                    crawled_pages = crawl_docs_site(
+                        urls[0],
+                        max_pages=16,
+                        max_depth=2,
+                    )
+                    reference_context, results = build_crawl_context(crawled_pages)
                 else:
                     reference_context, results = build_web_context(user_message, max_results=3)
             except Exception as exc:  # pragma: no cover - network/runtime variability.
@@ -474,10 +501,10 @@ def run_tui(
                 output_fn("denosysbot> web: no usable references found for skill creation.")
                 continue
 
-            created = create_skill_file(
+            created = create_skill_folder(
                 skills_dir=resolved_skills_path,
                 name=skill_name,
-                description=f"Learned guidance for {skill_name.replace('-', ' ')}",
+                description=_build_learned_skill_description(user_message, urls, skill_name),
                 triggers=_extract_keywords(skill_name.replace("-", " ")),
                 body=_build_learned_skill_body(reference_context),
             )

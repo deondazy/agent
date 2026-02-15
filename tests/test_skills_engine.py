@@ -2,6 +2,7 @@ from pathlib import Path
 
 from denosysbot.skills.engine import (
     create_skill_file,
+    create_skill_folder,
     load_skills,
     match_skills,
     render_skill_context,
@@ -107,3 +108,22 @@ def test_load_skills_skips_markdown_with_invalid_frontmatter_schema(tmp_path: Pa
     loaded = load_skills(skills_dir)
 
     assert loaded == []
+
+
+def test_create_skill_folder_writes_skill_md(tmp_path: Path) -> None:
+    skills_dir = tmp_path / "skills"
+    created = create_skill_folder(
+        skills_dir=skills_dir,
+        name="filament-v5",
+        description="Filament v5 framework skill",
+        triggers=("filament", "v5", "php"),
+        body="# Workflow\n\nUse Filament docs.\n",
+    )
+
+    assert created == skills_dir / "filament-v5" / "SKILL.md"
+    assert created.exists() is True
+    assert created.read_text().startswith("---\n")
+
+    loaded = load_skills(skills_dir)
+    assert len(loaded) == 1
+    assert loaded[0].name == "filament-v5"

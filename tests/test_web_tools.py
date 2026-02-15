@@ -1,4 +1,11 @@
-from denosysbot.tools.web import extract_urls, normalize_duckduckgo_result_url, parse_duckduckgo_results
+import httpx
+
+from denosysbot.tools.web import (
+    crawl_docs_site,
+    extract_urls,
+    normalize_duckduckgo_result_url,
+    parse_duckduckgo_results,
+)
 
 
 def test_normalize_duckduckgo_redirect_url_extracts_target() -> None:
@@ -34,3 +41,37 @@ def test_extract_urls_returns_http_and_https_links() -> None:
         "https://filamentphp.com/docs/5.x/getting-started",
         "http://example.org/page",
     )
+
+
+def test_crawl_docs_site_follows_internal_doc_links_page_by_page() -> None:
+    start = "https://filamentphp.com/docs/5.x/getting-started"
+    pages = {
+        "https://filamentphp.com/docs/5.x/getting-started": (
+            "<html><head><title>Getting Started</title></head><body>"
+            '<a href="/docs/5.x/panels/installation">Panels</a>'
+            '<a href="/docs/5.x/forms/overview">Forms</a>'
+            '<a href="/docs/4.x/legacy">Legacy</a>'
+            "</body></html>"
+        ),
+        "https://filamentphp.com/docs/5.x/panels/installation": (
+            "<html><head><title>Panels Installation</title></head><body>Install panels</body></html>"
+        ),
+        "https://filamentphp.com/docs/5.x/forms/overview": (
+            "<html><head><title>Forms Overview</title></head><body>Build forms</body></html>"
+        ),
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = pages.get(str(request.url))
+        if body is None:
+            return httpx.Response(404, text="not found")
+        return httpx.Response(200, text=body, headers={"content-type": "text/html; charset=utf-8"})
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    crawled = crawl_docs_site(start, max_pages=10, max_depth=2, http_client=client)
+    urls = [page.url for page in crawled]
+
+    assert "https://filamentphp.com/docs/5.x/getting-started" in urls
+    assert "https://filamentphp.com/docs/5.x/panels/installation" in urls
+    assert "https://filamentphp.com/docs/5.x/forms/overview" in urls
+    assert "https://filamentphp.com/docs/4.x/legacy" not in urls

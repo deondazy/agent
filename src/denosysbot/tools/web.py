@@ -2,12 +2,15 @@
 
 from dataclasses import dataclass
 from html import unescape
-from urllib.parse import parse_qs, unquote, urlparse
+from collections import deque
+from urllib.parse import parse_qs, unquote, urldefrag, urljoin, urlparse, urlunparse
 import re
 
 import httpx
 
 URL_PATTERN = re.compile(r"https?://[^\s)>\]\"']+")
+HREF_PATTERN = re.compile(r'<a[^>]+href=["\']([^"\']+)["\']', flags=re.IGNORECASE)
+TITLE_PATTERN = re.compile(r"<title[^>]*>(.*?)</title>", flags=re.IGNORECASE | re.DOTALL)
 RESULT_ANCHOR_PATTERN = re.compile(
     r'<a[^>]*class="[^"]*result__a[^"]*"[^>]*href="([^"]+)"[^>]*>(.*?)</a>',
     flags=re.IGNORECASE | re.DOTALL,
@@ -22,6 +25,14 @@ class WebSearchResult:
     title: str
     url: str
     excerpt: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class CrawledPage:
+    url: str
+    title: str
+    excerpt: str
+    depth: int
 
 
 def extract_urls(text: str) -> tuple[str, ...]:
@@ -151,6 +162,101 @@ def build_url_context(
     return "\n".join(lines), results
 
 
+def crawl_docs_site(
+    start_url: str,
+    *,
+    max_pages: int = 16,
+    max_depth: int = 2,
+    max_excerpt_chars: int = 2200,
+    timeout_seconds: float = 12.0,
+    http_client: httpx.Client | None = None,
+) -> list[CrawledPage]:
+    """Crawl documentation pages within the same site/prefix page-by-page."""
+
+    parsed_start = urlparse(start_url.strip())
+    if parsed_start.scheme not in {"http", "https"} or not parsed_start.netloc:
+        return []
+
+    root_url = _canonical_url(start_url)
+    if not root_url:
+        return []
+
+    if http_client is None:
+        with httpx.Client(timeout=timeout_seconds, follow_redirects=True) as client:
+            return crawl_docs_site(
+                root_url,
+                max_pages=max_pages,
+                max_depth=max_depth,
+                max_excerpt_chars=max_excerpt_chars,
+                timeout_seconds=timeout_seconds,
+                http_client=client,
+            )
+
+    start_prefix = _derive_docs_prefix(urlparse(root_url).path)
+    start_host = urlparse(root_url).netloc
+
+    queue: deque[tuple[str, int]] = deque([(root_url, 0)])
+    visited: set[str] = set()
+    crawled: list[CrawledPage] = []
+
+    while queue and len(crawled) < max(1, max_pages):
+        current_url, depth = queue.popleft()
+        if current_url in visited or depth > max_depth:
+            continue
+        visited.add(current_url)
+
+        try:
+            response = http_client.get(current_url, headers={"User-Agent": "denosysbot/0.1 (+https://example.local)"})
+            response.raise_for_status()
+        except httpx.HTTPError:
+            continue
+
+        content_type = response.headers.get("content-type", "")
+        if "text/html" not in content_type and "application/xhtml+xml" not in content_type:
+            continue
+
+        html = response.text
+        title = _extract_html_title(html) or urlparse(current_url).path.strip("/") or current_url
+        excerpt = _extract_plain_excerpt(html, max_chars=max_excerpt_chars)
+        crawled.append(CrawledPage(url=current_url, title=title, excerpt=excerpt, depth=depth))
+
+        if depth >= max_depth:
+            continue
+
+        for discovered_url in _extract_html_links(html, current_url):
+            if discovered_url in visited:
+                continue
+            parsed = urlparse(discovered_url)
+            if parsed.netloc != start_host:
+                continue
+            if not _path_matches_prefix(parsed.path, start_prefix):
+                continue
+            queue.append((discovered_url, depth + 1))
+
+    return crawled
+
+
+def build_crawl_context(
+    pages: list[CrawledPage],
+    *,
+    max_excerpt_chars: int = 700,
+) -> tuple[str, list[CrawledPage]]:
+    """Build prompt context from crawled documentation pages."""
+
+    if not pages:
+        return "", []
+
+    lines = ["Crawled documentation pages:"]
+    for index, page in enumerate(pages, start=1):
+        lines.append(f"{index}. {page.url}")
+        if page.title:
+            lines.append(f"   Title: {page.title}")
+        if page.excerpt:
+            clipped = page.excerpt if len(page.excerpt) <= max_excerpt_chars else f"{page.excerpt[:max_excerpt_chars].rstrip()}..."
+            lines.append(f"   Excerpt: {clipped}")
+    return "\n".join(lines), pages
+
+
 def fetch_web_excerpt(
     url: str,
     *,
@@ -189,3 +295,65 @@ def fetch_web_excerpt(
 
 def _strip_tags(raw: str) -> str:
     return unescape(TAG_PATTERN.sub("", raw)).strip()
+
+
+def _extract_html_links(html: str, base_url: str) -> tuple[str, ...]:
+    links: list[str] = []
+    for raw_href in HREF_PATTERN.findall(html):
+        absolute = urljoin(base_url, unescape(raw_href).strip())
+        canonical = _canonical_url(absolute)
+        if canonical and canonical not in links:
+            links.append(canonical)
+    return tuple(links)
+
+
+def _canonical_url(url: str) -> str:
+    cleaned = url.strip()
+    if not cleaned:
+        return ""
+    no_fragment, _fragment = urldefrag(cleaned)
+    parsed = urlparse(no_fragment)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        return ""
+    path = parsed.path or "/"
+    if path != "/":
+        path = path.rstrip("/")
+    return urlunparse((parsed.scheme, parsed.netloc, path, "", "", ""))
+
+
+def _derive_docs_prefix(path: str) -> str:
+    parts = [part for part in path.split("/") if part]
+    if not parts:
+        return "/"
+
+    if "docs" in parts:
+        docs_idx = parts.index("docs")
+        if docs_idx + 1 < len(parts):
+            return f"/{'/'.join(parts[: docs_idx + 2])}/"
+        return f"/{'/'.join(parts[: docs_idx + 1])}/"
+
+    if len(parts) >= 2:
+        return f"/{'/'.join(parts[:-1])}/"
+    return f"/{parts[0]}/"
+
+
+def _path_matches_prefix(path: str, prefix: str) -> bool:
+    normalized_path = f"{path.rstrip('/')}/" if path not in {"", "/"} else "/"
+    normalized_prefix = prefix if prefix.endswith("/") else f"{prefix}/"
+    return normalized_path.startswith(normalized_prefix)
+
+
+def _extract_html_title(html: str) -> str:
+    match = TITLE_PATTERN.search(html)
+    if not match:
+        return ""
+    return _strip_tags(match.group(1))
+
+
+def _extract_plain_excerpt(html: str, *, max_chars: int) -> str:
+    text = SCRIPT_STYLE_PATTERN.sub(" ", html)
+    text = _strip_tags(text)
+    text = WHITESPACE_PATTERN.sub(" ", text).strip()
+    if not text:
+        return ""
+    return text if len(text) <= max_chars else f"{text[:max_chars].rstrip()}..."

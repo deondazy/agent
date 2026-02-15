@@ -40,6 +40,34 @@ def create_skill_file(
     return path
 
 
+def create_skill_folder(
+    skills_dir: Path,
+    name: str,
+    description: str,
+    triggers: tuple[str, ...] = (),
+    body: str | None = None,
+) -> Path:
+    """Create a skill directory and write SKILL.md inside it."""
+
+    normalized_name = _normalize_skill_name(name)
+    normalized_description = description.strip() or f"{normalized_name} workflow skill"
+    normalized_triggers = _normalize_triggers(triggers, normalized_name, normalized_description)
+    skill_body = body.strip() if isinstance(body, str) and body.strip() else _default_skill_body()
+
+    skill_dir = _resolve_unique_skill_dir(skills_dir, normalized_name)
+    skill_dir.mkdir(parents=True, exist_ok=True)
+    path = skill_dir / "SKILL.md"
+    path.write_text(
+        _render_skill_markdown(
+            normalized_name,
+            normalized_description,
+            normalized_triggers,
+            skill_body,
+        )
+    )
+    return path
+
+
 def load_skills(skills_dir: Path) -> list[SkillDefinition]:
     """Load all markdown skills from a local directory."""
 
@@ -268,6 +296,19 @@ def _resolve_unique_path(skills_dir: Path, base_name: str) -> Path:
     suffix = 2
     while True:
         candidate = skills_dir / f"{base_name}-{suffix}.md"
+        if not candidate.exists():
+            return candidate
+        suffix += 1
+
+
+def _resolve_unique_skill_dir(skills_dir: Path, base_name: str) -> Path:
+    candidate = skills_dir / base_name
+    if not candidate.exists():
+        return candidate
+
+    suffix = 2
+    while True:
+        candidate = skills_dir / f"{base_name}-{suffix}"
         if not candidate.exists():
             return candidate
         suffix += 1
